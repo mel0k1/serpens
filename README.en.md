@@ -108,7 +108,7 @@ From a stage and a kernel, `scripts/mkiso.sh` builds a bootable live ISO: an ini
 ./scripts/mkiso.sh serpens-stage-x86_64.tar.gz serpens-live-x86_64.iso
 ```
 
-The image boots both BIOS and EFI; for a local check qemu is enough: `qemu-system-x86_64 -m 1024 -nographic -cdrom serpens-live-x86_64.iso`.
+The image boots both BIOS and EFI; for a local check qemu is enough: `qemu-system-x86_64 -m 2048 -nographic -cdrom serpens-live-x86_64.iso`.
 
 ## CI
 

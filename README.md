@@ -108,7 +108,7 @@ sudo ./scripts/install.sh --stage ./serpens-stage-x86_64.tar.gz --disk /dev/vda 
 ./scripts/mkiso.sh serpens-stage-x86_64.tar.gz serpens-live-x86_64.iso
 ```
 
-Полученный образ грузится и в BIOS, и в EFI, для локальной проверки хватит qemu: `qemu-system-x86_64 -m 1024 -nographic -cdrom serpens-live-x86_64.iso`.
+Полученный образ грузится и в BIOS, и в EFI, для локальной проверки хватит qemu: `qemu-system-x86_64 -m 2048 -nographic -cdrom serpens-live-x86_64.iso`.
 
 ## CI
 

@@ -87,7 +87,7 @@ if [ -z "$SRC" ]; then
 fi
 
 echo "serpens-iso: живой корень с $SRC"
-/bin/busybox mount -t tmpfs tmpfs /newroot
+/bin/busybox mount -t tmpfs -o size=80% tmpfs /newroot
 STAGE=$(/bin/busybox ls /mnt/serpens-stage-*.tar.gz | head -n 1)
 /bin/busybox tar -xzf "$STAGE" -C /newroot
 /bin/busybox mkdir -p /newroot/media/serpens
