@@ -77,7 +77,12 @@ write_conf() {
 
 write_conf "$SRC_DIR"
 log "ставлю пакеты: $PKGS"
-FLEXURA_ROOT="$STAGE" "$FLEXURA" install $PKGS
+if ! FLEXURA_ROOT="$STAGE" "$FLEXURA" install $PKGS; then
+    mkdir -p flexura-logs
+    cp "$STAGE/var/log/flexura/"*.log flexura-logs/ 2>/dev/null || true
+    log "сборка сорвалась, логи в $PWD/flexura-logs/"
+    exit 1
+fi
 
 write_conf "$REPO_URL"
 log "ставлю исполнимый конфиг с репозиторием $REPO_URL"

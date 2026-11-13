@@ -68,6 +68,13 @@ jobs:
       - name: stage tarball
         run: scripts/mkstage.sh serpens-stage-x86_64.tar.gz
 
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: flexura-logs
+          path: flexura-logs/
+          retention-days: 7
+
       - name: verify stage
         run: |
           ROOT=$(mktemp -d)

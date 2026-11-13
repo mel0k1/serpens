@@ -108,7 +108,9 @@ pub fn run(recipe: &Recipe, paths: &Paths, log_dir: &Path) -> Result<BuildResult
     ];
     for (phase, steps) in phases {
         for step in steps {
-            run_step(&pf, phase, step, &work_dir, &envs, &shim, &mut log)?;
+            run_step(
+                &pf, phase, step, &work_dir, &envs, &shim, &mut log, &log_path,
+            )?;
         }
     }
 
@@ -204,6 +206,7 @@ fn run_step(
     envs: &[(&str, String)],
     shim: &str,
     log: &mut std::fs::File,
+    log_path: &std::path::Path,
 ) -> Result<()> {
     let script = format!("source {};\n{}", shim, cmd);
     let mut c = Command::new("bash");
@@ -224,11 +227,24 @@ fn run_step(
         for l in &lines[start..] {
             util::error(&format!("{}| {}", pf, l));
         }
+        let hits: Vec<&str> = lines
+            .iter()
+            .filter(|l| l.to_lowercase().contains("error"))
+            .take(20)
+            .copied()
+            .collect();
+        if !hits.is_empty() {
+            util::error(&format!("{}| ---", pf));
+            for l in &hits {
+                util::error(&format!("{}| {}", pf, l));
+            }
+        }
         bail!(
-            "{}: фаза {} завершилась с кодом {}",
+            "{}: фаза {} завершилась с кодом {}, полный лог: {}",
             pf,
             phase,
-            output.status.code().unwrap_or(-1)
+            output.status.code().unwrap_or(-1),
+            log_path.display()
         );
     }
     Ok(())
