@@ -3,6 +3,7 @@ name: release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -11,7 +12,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,11 +27,73 @@ jobs:
       - name: stage tarball
         run: scripts/mkstage.sh serpens-stage-x86_64.tar.gz
 
-      - name: checksums
+      - name: artifacts
         run: |
           cp target/release/flexura flexura-x86_64-linux
           cp target/release/ebuild2flx ebuild2flx-x86_64-linux
           sha256sum serpens-stage-x86_64.tar.gz flexura-x86_64-linux ebuild2flx-x86_64-linux > sha256sums.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: base
+          path: |
+            serpens-stage-x86_64.tar.gz
+            flexura-x86_64-linux
+            ebuild2flx-x86_64-linux
+            sha256sums.txt
+          retention-days: 7
+
+  iso:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flex bison cpio xorriso grub-pc-bin grub-efi-amd64-bin mtools file qemu-system-x86
+
+      - name: build
+        run: cargo build --release
+
+      - name: stage tarball
+        run: scripts/mkstage.sh serpens-stage-x86_64.tar.gz --pkgs "serpens-base serpens-boot busybox bash coreutils ncurses readline zlib linux grub"
+
+      - name: live iso
+        run: scripts/mkiso.sh serpens-stage-x86_64.tar.gz serpens-live-x86_64.iso
+
+      - name: boot test
+        run: |
+          (sleep 140; echo root; sleep 60; echo poweroff; sleep 60) \
+            | timeout 300 qemu-system-x86_64 -m 1024 -smp 2 -machine accel=kvm:tcg -nographic -no-reboot -cdrom serpens-live-x86_64.iso > serial.log 2>&1 || true
+          grep -q "login:" serial.log
+          grep -q "root@serpens" serial.log
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iso
+          path: serpens-live-x86_64.iso
+          retention-days: 7
+
+  publish:
+    needs: [build, iso]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: base
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: iso
+
+      - name: checksums
+        run: sha256sum serpens-live-x86_64.iso >> sha256sums.txt
 
       - name: publish
         env:
@@ -42,4 +105,5 @@ jobs:
             serpens-stage-x86_64.tar.gz \
             flexura-x86_64-linux \
             ebuild2flx-x86_64-linux \
+            serpens-live-x86_64.iso \
             sha256sums.txt
