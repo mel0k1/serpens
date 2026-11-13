@@ -38,7 +38,7 @@ jobs:
           mkdir -p "$ROOT/etc/flexura"
           printf '[main]\nprofile = "default/x86-64"\nrepos = ["%s"]\n' "$GITHUB_WORKSPACE" > "$ROOT/etc/flexura/flexura.conf"
           ./target/release/flexura --root "$ROOT" list
-          for p in serpens-base busybox bash coreutils ncurses readline zlib openssl openssl:1.1 curl git htop; do
+          for p in serpens-base serpens-boot busybox bash coreutils ncurses readline zlib openssl openssl:1.1 curl git htop linux grub; do
             ./target/release/flexura --root "$ROOT" deps "$p"
           done
 
@@ -81,6 +81,10 @@ jobs:
           tar -xzf serpens-stage-x86_64.tar.gz -C "$ROOT"
           test -L "$ROOT/bin/sh"
           test -x "$ROOT/usr/bin/flexura"
+          test -f "$ROOT/etc/inittab"
+          test -x "$ROOT/etc/init.d/rcS"
+          test -f "$ROOT/usr/lib/grub/i386-pc/boot.img"
+          test -f "$ROOT/usr/lib/grub/x86_64-efi/kernel.img"
           FLEXURA_ROOT="$ROOT" ./target/release/flexura --root "$ROOT" list -i
 
       - uses: actions/upload-artifact@v4
