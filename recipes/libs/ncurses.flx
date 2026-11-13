@@ -12,6 +12,6 @@ url = "https://mirrors.kernel.org/gnu/ncurses/ncurses-6.5.tar.gz"
 default = ["widec", "unicode"]
 
 [build]
-configure = ["./configure --prefix=/usr --with-shared --without-debug --enable-widec"]
+configure = ["./configure --prefix=/usr --with-shared --without-debug --enable-widec --without-cxx-binding"]
 compile = ["make -j${NPROC}"]
 install = ["make DESTDIR=${D} install"]
