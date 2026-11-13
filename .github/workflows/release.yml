@@ -68,28 +68,7 @@ jobs:
 
       - name: boot test
         run: |
-          xorriso -osirrox on -indev serpens-live-x86_64.iso -extract /boot /tmp/isoboot
           set +e
-          HK=$(ls /boot/vmlinuz-* 2>/dev/null | head -1)
-          echo "host kernel: $HK"
-          echo "===== TEST A: host kernel, minimal qemu ====="
-          rm -f a.log
-          timeout 60 qemu-system-x86_64 -m 1024 -accel tcg -nographic \
-            -kernel "$HK" -append "console=ttyS0,115200 earlyprintk=serial,ttyS0,115200,keep panic=-1" \
-            > a.log 2>&1
-          echo "qemu exit: $?"
-          tail -c 2000 a.log | tr -d '\r'
-          sudo dmesg | tail -4
-          echo "===== TEST B: our kernel, minimal qemu ====="
-          rm -f b.log
-          timeout 60 qemu-system-x86_64 -m 2048 -accel tcg -nographic \
-            -kernel /tmp/isoboot/vmlinuz-serpens -initrd /tmp/isoboot/initramfs.cpio.gz \
-            -append "console=ttyS0,115200 earlyprintk=serial,ttyS0,115200,keep panic=-1" \
-            > b.log 2>&1
-          echo "qemu exit: $?"
-          tail -c 3000 b.log | tr -d '\r'
-          sudo dmesg | tail -4
-          echo "===== TEST C: product path, grub from cdrom ====="
           rm -f serial.log debug.log
           timeout 360 qemu-system-x86_64 -m 2048 -smp 2 -accel tcg \
             -display none -monitor none \
@@ -108,8 +87,7 @@ jobs:
           kill $QPID 2>/dev/null
           wait $QPID
           echo "qemu exit: $?"
-          tail -c 6000 serial.log | tr -d '\r' || true
-          sudo dmesg | tail -4
+          tail -c 4000 serial.log | tr -d '\r' || true
           set -e
           grep -q "login:" serial.log 2>/dev/null
 

@@ -59,6 +59,7 @@ ln -sf busybox "$INITFS/bin/sh"
 
 cat > "$INITFS/init" <<'INIT_EOF'
 #!/bin/busybox sh
+export PATH=/bin
 /bin/busybox mkdir -p /proc /sys /dev /tmp /mnt /newroot /run
 /bin/busybox mount -t proc none /proc
 /bin/busybox mount -t sysfs none /sys
@@ -88,7 +89,7 @@ fi
 
 echo "serpens-iso: живой корень с $SRC"
 /bin/busybox mount -t tmpfs -o size=80% tmpfs /newroot
-STAGE=$(/bin/busybox ls /mnt/serpens-stage-*.tar.gz | head -n 1)
+STAGE=$(/bin/busybox ls /mnt/serpens-stage-*.tar.gz | /bin/busybox head -n 1)
 /bin/busybox tar -xzf "$STAGE" -C /newroot
 /bin/busybox mkdir -p /newroot/media/serpens
 /bin/busybox mount -o move /mnt /newroot/media/serpens
