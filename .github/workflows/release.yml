@@ -70,6 +70,9 @@ jobs:
         run: |
           (sleep 140; echo root; sleep 60; echo poweroff; sleep 60) \
             | timeout 300 qemu-system-x86_64 -m 2048 -smp 2 -machine accel=kvm:tcg -nographic -no-reboot -cdrom serpens-live-x86_64.iso > serial.log 2>&1 || true
+          echo "=== serial tail ==="
+          tail -c 6000 serial.log || true
+          echo "=== end serial ==="
           grep -q "login:" serial.log
           grep -q "root@serpens" serial.log
 
