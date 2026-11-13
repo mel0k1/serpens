@@ -16,6 +16,6 @@ default = ["readline"]
 
 [build]
 prepare = ['''sed -i '1i #include <unistd.h>' lib/termcap/tparam.c''']
-configure = ["./configure --prefix=/usr --with-installed-readline --without-bash-malloc"]
+configure = ['CC="gcc -std=gnu17" ./configure --prefix=/usr --with-installed-readline --without-bash-malloc']
 compile = ["make -j${NPROC}"]
 install = ["make DESTDIR=${D} install"]
