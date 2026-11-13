@@ -1,0 +1,15 @@
+[package]
+name = "grub"
+version = "2.14"
+description = "Загрузчик GRUB 2: модули EFI и BIOS"
+homepage = "https://www.gnu.org/software/grub/"
+license = "GPL-3.0"
+
+[source]
+url = "https://mirrors.kernel.org/gnu/grub/grub-2.14.tar.xz"
+
+[build]
+install = [
+  '''mkdir -p build-efi && cd build-efi && ../configure --prefix=/usr --with-platform=efi --disable-werror --disable-grub-mkfont --disable-nls && make -j${NPROC} && make DESTDIR=${D} install''',
+  '''mkdir -p build-pc && cd build-pc && ../configure --prefix=/usr --with-platform=pc --disable-werror --disable-grub-mkfont --disable-nls && make -j${NPROC} && make DESTDIR=${D} install''',
+]
