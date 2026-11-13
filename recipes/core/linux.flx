@@ -1,0 +1,25 @@
+[package]
+name = "linux"
+version = "6.12.117"
+description = "Ядро Linux: bzImage, модули и System.map"
+homepage = "https://kernel.org/"
+license = "GPL-2.0"
+
+[source]
+url = "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.117.tar.xz"
+sha256 = "74e99aa5e60e242e0a165fed8cb2ea0d054bf7a401f01861d403d75733456613"
+
+[build]
+prepare = [
+  "make defconfig",
+  "./scripts/config -e ISO9660_FS -e BLK_DEV_LOOP -e BLK_DEV_SR",
+  "make olddefconfig",
+]
+compile = ["make -j${NPROC} bzImage modules"]
+install = [
+  'install -D -m 644 arch/x86/boot/bzImage "$D/boot/vmlinuz-${PV}"',
+  'install -D -m 644 System.map "$D/boot/System.map-${PV}"',
+  'install -D -m 644 .config "$D/boot/config-${PV}"',
+  'make INSTALL_MOD_PATH="$D" modules_install',
+  'depmod -b "$D" "${PV}" 2>/dev/null || true',
+]
