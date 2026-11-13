@@ -1,0 +1,45 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: build
+        run: cargo build --release
+
+      - name: stage tarball
+        run: scripts/mkstage.sh serpens-stage-x86_64.tar.gz
+
+      - name: checksums
+        run: |
+          cp target/release/flexura flexura-x86_64-linux
+          cp target/release/ebuild2flx ebuild2flx-x86_64-linux
+          sha256sum serpens-stage-x86_64.tar.gz flexura-x86_64-linux ebuild2flx-x86_64-linux > sha256sums.txt
+
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Serpens $GITHUB_REF_NAME" \
+            --generate-notes \
+            serpens-stage-x86_64.tar.gz \
+            flexura-x86_64-linux \
+            ebuild2flx-x86_64-linux \
+            sha256sums.txt

@@ -1,0 +1,83 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: fmt
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: tests
+        run: cargo test --workspace
+
+      - name: build
+        run: cargo build --release
+
+      - name: recipes
+        run: |
+          ROOT=$(mktemp -d)
+          mkdir -p "$ROOT/etc/flexura"
+          printf '[main]\nprofile = "default/x86-64"\nrepos = ["%s"]\n' "$GITHUB_WORKSPACE" > "$ROOT/etc/flexura/flexura.conf"
+          ./target/release/flexura --root "$ROOT" list
+          for p in serpens-base busybox bash coreutils ncurses readline zlib openssl openssl:1.1 curl git htop; do
+            ./target/release/flexura --root "$ROOT" deps "$p"
+          done
+
+      - name: smoke
+        run: |
+          scripts/mktest-pkg.sh /tmp/flexura-test
+          mkdir -p /tmp/smoke/etc/flexura
+          printf '[main]\nrepos = ["/tmp/flexura-test"]\n' > /tmp/smoke/etc/flexura/flexura.conf
+          ./target/release/flexura --root /tmp/smoke install hello
+          /tmp/smoke/usr/bin/hello
+
+  stage:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: build
+        run: cargo build --release
+
+      - name: stage tarball
+        run: scripts/mkstage.sh serpens-stage-x86_64.tar.gz
+
+      - name: verify stage
+        run: |
+          ROOT=$(mktemp -d)
+          tar -xzf serpens-stage-x86_64.tar.gz -C "$ROOT"
+          test -L "$ROOT/bin/sh"
+          test -x "$ROOT/usr/bin/flexura"
+          FLEXURA_ROOT="$ROOT" ./target/release/flexura --root "$ROOT" list -i
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: serpens-stage-x86_64
+          path: serpens-stage-x86_64.tar.gz
+          retention-days: 7
