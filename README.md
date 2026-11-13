@@ -19,7 +19,7 @@
 
 Gentoo построен на сборке из исходников, и в этом его сила. Portage при этом живёт на Python, стартует медленно, а в его bash-скриптовых ебилдах накопилось столько истории, что новичку там тяжело ориентироваться. Serpens сохраняет саму идею: фазовая сборка, профили, USE-флаги, дерево пакетов. Вместо Portage здесь flexura. Рецепты лежат в TOML вместо bash, движок написан на Rust, а баш остаётся только там, где он органичен, то есть в командах сборки.
 
-Проект ранний, и это честно: дерево рецептов экспериментальное, glibc и ядро в нём пока отсутствуют. Как песочница и фундамент для собственных сборок рабочее, для повседневной системы пока бери сам Gentoo.
+Проект ранний, и это честно: дерево рецептов экспериментальное, glibc в нём пока отсутствует, системный init — busybox. Как песочница и фундамент для собственных сборок рабочее, для повседневной системы пока бери сам Gentoo.
 
 ## flexura
 
@@ -31,7 +31,7 @@ Gentoo построен на сборке из исходников, и в эт�
 | `flexura install bash` | `emerge`, `add` | разрешает зависимости, собирает, ставит | `emerge bash` |
 | `flexura fetch bash` | `download` | только скачивает исходники | `emerge --fetchonly` |
 | `flexura remove bash` | `unmerge`, `del` | удаляет пакет по списку файлов | `emerge --unmerge` |
-| `flexura upgrade` | | пересобирает всё из world | `emerge --update @world` |
+| `flexura upgrade` | | поднимает пакеты из world до старших версий | `emerge --update @world` |
 | `flexura depclean` | `clean` | убирает осиротевшие зависимости | `emerge --depclean` |
 | `flexura search htop` | `find` | ищет по именам и описаниям | `emerge --search` |
 | `flexura info bash` | `show` | показывает рецепт и статус | `equery show` |
@@ -85,7 +85,7 @@ build = ["!oldmail", "!!newmail>=2.0"]
 
 ## Stage и установка
 
-`scripts/mkstage.sh` бутстрапит корень: собирает flexura, ставит в свежий корень базовый набор (serpens-base, busybox, bash, coreutils, ncurses, readline, zlib), пишет конфиг с репозиторием и пакует тарбол:
+`scripts/mkstage.sh` бутстрапит корень: собирает flexura, ставит в свежий корень базовый набор (serpens-base, serpens-boot, busybox, bash, coreutils, ncurses, readline, zlib, grub), пишет конфиг с репозиторием и пакует тарбол:
 
 ```bash
 ./scripts/mkstage.sh serpens-stage-x86_64.tar.gz
@@ -99,11 +99,20 @@ build = ["!oldmail", "!!newmail>=2.0"]
 sudo ./scripts/install.sh --stage ./serpens-stage-x86_64.tar.gz --disk /dev/vda --efi
 ```
 
-Ядра в дереве рецептов пока нет, поэтому загрузчик остаётся на совести установщика: с ключом `--grub` скрипт поставит grub с хоста и сгенерирует grub.cfg, если в stage уже лежит ядро.
+Ядро и загрузчик есть в дереве: рецепт `linux` собирает bzImage с defconfig (включены ext4, virtio, iso9660) и ставит его в /boot вместе с модулями, рецепт `grub` собирает модули сразу для EFI и BIOS, serpens-boot кладёт inittab, rc-скрипты busybox и учётку root. С ключом `--grub` install.sh ставит grub из stage через chroot (или с хоста, если grub ещё не собран), пишет fstab с UUID корня и генерирует grub.cfg.
+
+Из stage и ядра `scripts/mkiso.sh` собирает загрузочный live-ISO: initramfs со static busybox, при загрузке stage разворачивается в RAM, смонтированный носитель остаётся в /media/serpens, так что install.sh может поставить систему на диск прямо из live-сессии:
+
+```bash
+./scripts/mkstage.sh serpens-stage-x86_64.tar.gz --pkgs "serpens-base serpens-boot busybox bash coreutils ncurses readline zlib linux grub"
+./scripts/mkiso.sh serpens-stage-x86_64.tar.gz serpens-live-x86_64.iso
+```
+
+Полученный образ грузится и в BIOS, и в EFI, для локальной проверки хватит qemu: `qemu-system-x86_64 -m 1024 -nographic -cdrom serpens-live-x86_64.iso`.
 
 ## CI
 
-GitHub Actions собирает workspace под fmt, clippy с `-D warnings`, тесты, проверяет, что все рецепты парсятся и резолвятся, гоняет smoke-установку тестового пакета и в конце бутстрапит stage-тарбол, проверяя его распаковкой. Тег `v*` публикует релиз с тарболом stage, бинарниками flexura и ebuild2flx и sha256sums.
+GitHub Actions собирает workspace под fmt, clippy с `-D warnings`, тесты, проверяет, что все рецепты парсятся и резолвятся, гоняет smoke-установку тестового пакета и в конце бутстрапит stage-тарбол с serpens-boot и grub, проверяя его распаковкой. Workflow release на тегах `v*` или по ручному запуску дополнительно собирает ядро и live-ISO и грузит систему в qemu: тест ждёт приглашение login на последовательной консоли, логинится root-ом и выключает машину. Релиз публикует тарбол stage, бинарники flexura и ebuild2flx, live-ISO и sha256sums.
 
 ## Рецепт
 
@@ -171,7 +180,7 @@ serpens/
 ├── etc/           os-release и пример flexura.conf
 ├── fastfetch/     конфиг с логотипом
 ├── neofetch/      то же для neofetch
-├── scripts/       mkstage.sh, install.sh и генератор тестового пакета
+├── scripts/       mkstage.sh, install.sh, mkiso.sh и генератор тестового пакета
 ├── .github/       CI и release-конвейеры
 └── assets/        иконка и ascii
 ```
@@ -239,8 +248,8 @@ fastfetch --logo assets/serpens.ascii --logo-color magenta
 
 - бинарный хост: формат .ftar с метаданными и проверкой сумм
 - sandbox для фаз сборки, хуки до и после
-- рецепты glibc и ядра, чтобы stage стал самостоятельным
-- sub-слоты и слоты сборщика, поиск лучшего кандидата при апгрейдах
+- рецепт glibc, чтобы stage перестал зависеть от тулчейна хоста
+- sub-слоты и слоты сборщика
 
 ## Лицензия
 

@@ -19,7 +19,7 @@ A Gentoo-based Linux distribution with its own package manager, flexura, written
 
 Gentoo is built around compiling from source, and that is its strength. Portage, meanwhile, runs on Python, starts slowly, and its bash-script ebuilds carry decades of history that is hard to navigate. Serpens keeps the idea: phased builds, profiles, USE flags, a package tree. Portage is replaced by flexura. Recipes live in TOML instead of bash, the engine is written in Rust, and bash stays only where it belongs, inside the build commands themselves.
 
-The project is early and honest about it: the recipe tree is experimental, glibc and the kernel are not there yet. As a playground and a foundation for your own builds it works; for a daily system stick with plain Gentoo for now.
+The project is early and honest about it: the recipe tree is experimental, glibc is not there yet and the system init is busybox. As a playground and a foundation for your own builds it works; for a daily system stick with plain Gentoo for now.
 
 ## flexura
 
@@ -31,7 +31,7 @@ The package manager. Subcommand style, with aliases for the Portage operations y
 | `flexura install bash` | `emerge`, `add` | resolve deps, build, merge | `emerge bash` |
 | `flexura fetch bash` | `download` | download sources only | `emerge --fetchonly` |
 | `flexura remove bash` | `unmerge`, `del` | delete a package by its file list | `emerge --unmerge` |
-| `flexura upgrade` | | rebuild everything from world | `emerge --update @world` |
+| `flexura upgrade` | | move world packages up to newer versions | `emerge --update @world` |
 | `flexura depclean` | `clean` | drop orphaned dependencies | `emerge --depclean` |
 | `flexura search htop` | `find` | search names and descriptions | `emerge --search` |
 | `flexura info bash` | `show` | show a recipe and its status | `equery show` |
@@ -85,7 +85,7 @@ The converter is honest about what it cannot do: atoms with `[use]` conditions a
 
 ## Stage and installation
 
-`scripts/mkstage.sh` bootstraps a root: it builds flexura, installs a base set into a fresh root (serpens-base, busybox, bash, coreutils, ncurses, readline, zlib), writes a config pointing at the repository and packs the tarball:
+`scripts/mkstage.sh` bootstraps a root: it builds flexura, installs a base set into a fresh root (serpens-base, serpens-boot, busybox, bash, coreutils, ncurses, readline, zlib, grub), writes a config pointing at the repository and packs the tarball:
 
 ```bash
 ./scripts/mkstage.sh serpens-stage-x86_64.tar.gz
@@ -99,11 +99,20 @@ The tarball carries a ready root with a world file and a working flexura, so aft
 sudo ./scripts/install.sh --stage ./serpens-stage-x86_64.tar.gz --disk /dev/vda --efi
 ```
 
-There is no kernel recipe yet, so the bootloader stays outside the installer's scope: with the `--grub` flag the script will install grub from the host and generate grub.cfg if a kernel is already inside the stage.
+Kernel and bootloader are in the tree: the `linux` recipe builds a bzImage from defconfig (ext4, virtio and iso9660 included) and installs it into /boot with modules, the `grub` recipe builds modules for both EFI and BIOS, serpens-boot provides busybox inittab, rc scripts and the root account. With the `--grub` flag install.sh installs grub from the stage via chroot (or from the host when grub is not built yet), writes fstab with the root UUID and generates grub.cfg.
+
+From a stage and a kernel, `scripts/mkiso.sh` builds a bootable live ISO: an initramfs with a static busybox, at boot the stage is unpacked into RAM and the mounted medium stays at /media/serpens, so install.sh can put the system on disk right from the live session:
+
+```bash
+./scripts/mkstage.sh serpens-stage-x86_64.tar.gz --pkgs "serpens-base serpens-boot busybox bash coreutils ncurses readline zlib linux grub"
+./scripts/mkiso.sh serpens-stage-x86_64.tar.gz serpens-live-x86_64.iso
+```
+
+The image boots both BIOS and EFI; for a local check qemu is enough: `qemu-system-x86_64 -m 1024 -nographic -cdrom serpens-live-x86_64.iso`.
 
 ## CI
 
-GitHub Actions builds the workspace under fmt, clippy with `-D warnings` and tests, checks that every recipe parses and resolves, runs a smoke install of the test package, and finally bootstraps a stage tarball and verifies it by unpacking. A `v*` tag publishes a release with the stage tarball, the flexura and ebuild2flx binaries and sha256sums.
+GitHub Actions builds the workspace under fmt, clippy with `-D warnings` and tests, checks that every recipe parses and resolves, runs a smoke install of the test package, and finally bootstraps a stage tarball with serpens-boot and grub and verifies it by unpacking. The release workflow, triggered by `v*` tags or manually, additionally builds the kernel and a live ISO and boots the system in qemu: the test waits for a login prompt on the serial console, logs in as root and powers the machine off. A release publishes the stage tarball, the flexura and ebuild2flx binaries, the live ISO and sha256sums.
 
 ## A recipe
 
@@ -171,7 +180,7 @@ serpens/
 ├── etc/           os-release and a sample flexura.conf
 ├── fastfetch/     config with the logo
 ├── neofetch/      the same for neofetch
-├── scripts/       mkstage.sh, install.sh and the test package generator
+├── scripts/       mkstage.sh, install.sh, mkiso.sh and the test package generator
 ├── .github/       CI and release pipelines
 └── assets/        icon and ascii art
 ```
@@ -239,8 +248,8 @@ libc selection and the toolchain will move into profiles later.
 
 - a binary host: the .ftar format with metadata and checksum verification
 - a sandbox for build phases, pre and post hooks
-- glibc and kernel recipes, so the stage becomes self-contained
-- build sub-slots and better upgrade candidate selection
+- a glibc recipe, so the stage stops depending on the host toolchain
+- build sub-slots
 
 ## License
 
