@@ -1,0 +1,7 @@
+NAME="Serpens"
+PRETTY_NAME="Serpens Linux"
+ID=serpens
+HOME_URL="https://github.com/mel0k1/serpens"
+SUPPORT_URL="https://github.com/mel0k1/serpens/issues"
+ANSI_COLOR="1;35"
+BUILD_ID=rolling
