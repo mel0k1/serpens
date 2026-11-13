@@ -9,9 +9,16 @@ license = "GPL-2.0"
 url = "https://busybox.net/downloads/busybox-1.36.1.tar.bz2"
 
 [flags]
-default = ["static"]
+default = []
 
 [build]
-prepare = ["make defconfig"]
+prepare = [
+  "make defconfig",
+  '''sed -i 's/^CONFIG_TC=y/# CONFIG_TC is not set/' .config''',
+  '''if use static; then sed -i 's/^# CONFIG_STATIC is not set/CONFIG_STATIC=y/' .config; fi''',
+]
 compile = ["make -j${NPROC}"]
-install = ["make CONFIG_PREFIX=${D}/usr install"]
+install = [
+  "make CONFIG_PREFIX=${D}/usr install",
+  '''mkdir -p "$D/bin" "$D/usr/bin" && ln -sf busybox "$D/usr/bin/sh" && ln -sf /usr/bin/busybox "$D/bin/sh"''',
+]

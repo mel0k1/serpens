@@ -126,7 +126,13 @@ pub fn run(recipe: &Recipe, paths: &Paths, log_dir: &Path) -> Result<BuildResult
     dirs.sort();
     let mut size = 0u64;
     for f in &files {
-        size += std::fs::metadata(dest_dir.join(f))?.len();
+        let p = dest_dir.join(f);
+        let m = std::fs::symlink_metadata(&p)?;
+        size += if m.is_symlink() {
+            m.len().min(4096)
+        } else {
+            m.len()
+        };
     }
     Ok(BuildResult {
         dest: dest_dir,

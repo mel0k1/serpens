@@ -178,10 +178,15 @@ fn merge(recipe: &Recipe, paths: &Paths, result: &build::BuildResult, db: &mut D
         if let Some(p) = dst.parent() {
             std::fs::create_dir_all(p)?;
         }
-        if dst.exists() {
+        if dst.is_symlink() || dst.exists() {
             std::fs::remove_file(&dst)?;
         }
-        std::fs::copy(&src, &dst)?;
+        if src.is_symlink() {
+            let target = std::fs::read_link(&src)?;
+            std::os::unix::fs::symlink(target, &dst)?;
+        } else {
+            std::fs::copy(&src, &dst)?;
+        }
     }
     let inst = Installed {
         version: recipe.package.version.clone(),

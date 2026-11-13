@@ -1,0 +1,21 @@
+[package]
+name = "openssl"
+version = "1.1.1w"
+slot = "1.1"
+description = "Криптографическая библиотека TLS, ветка 1.1.1 для старых зависимостей"
+homepage = "https://www.openssl.org/"
+license = "Apache-2.0"
+
+[source]
+url = "https://www.openssl.org/source/old/1.1.1/openssl-1.1.1w.tar.gz"
+
+[dependencies]
+runtime = ["zlib>=1.2"]
+
+[flags]
+default = ["zlib"]
+
+[build]
+configure = ["./config --prefix=/usr --openssldir=/etc/ssl shared zlib"]
+compile = ["make -j${NPROC}"]
+install = ["make DESTDIR=${D} install_sw install_ssldirs"]

@@ -690,4 +690,3 @@ src_install() {
         assert!(c.toml.contains("make DESTDIR=\"${D}\" install"));
     }
 }
-
