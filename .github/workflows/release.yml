@@ -55,7 +55,7 @@ jobs:
       - name: tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y flex bison cpio xorriso grub-pc-bin grub-efi-amd64-bin mtools file qemu-system-x86
+          sudo apt-get install -y flex bison cpio xorriso grub-pc-bin grub-efi-amd64-bin mtools file qemu-system-x86 libelf-dev
 
       - name: build
         run: cargo build --release
