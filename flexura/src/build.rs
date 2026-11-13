@@ -220,7 +220,7 @@ fn run_step(
     if !output.status.success() {
         let tail = String::from_utf8_lossy(&output.stderr);
         let lines: Vec<&str> = tail.lines().collect();
-        let start = lines.len().saturating_sub(8);
+        let start = lines.len().saturating_sub(40);
         for l in &lines[start..] {
             util::error(&format!("{}| {}", pf, l));
         }
