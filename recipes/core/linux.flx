@@ -21,5 +21,6 @@ install = [
   'install -D -m 644 System.map "$D/boot/System.map-${PV}"',
   'install -D -m 644 .config "$D/boot/config-${PV}"',
   'make INSTALL_MOD_PATH="$D" modules_install',
+  'rm -rf "$D/lib/modules/${PV}/build" "$D/lib/modules/${PV}/source"',
   'depmod -b "$D" "${PV}" 2>/dev/null || true',
 ]
