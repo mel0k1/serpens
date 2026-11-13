@@ -1,0 +1,7 @@
+[x86-64]
+path = "default/x86-64"
+stable = true
+
+[x86-64-musl]
+path = "default/x86-64-musl"
+stable = false
