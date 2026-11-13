@@ -15,6 +15,37 @@ pub struct BuildResult {
     pub size: u64,
 }
 
+pub const SHIM: &str = r#"use() {
+    case " $USE " in
+        *" $1 "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+has_flag() {
+    use "$@"
+}
+use_enable() {
+    local flag="$1" opt="${2:-$1}" val="${3:-}" off="${4:-}"
+    if use "$flag"; then
+        printf -- "--enable-%s" "$opt"
+        [ -n "$val" ] && printf "=%s" "$val"
+    else
+        printf -- "--disable-%s" "$opt"
+        [ -n "$off" ] && printf "=%s" "$off"
+    fi
+}
+use_with() {
+    local flag="$1" opt="${2:-$1}" val="${3:-}" off="${4:-}"
+    if use "$flag"; then
+        printf -- "--with-%s" "$opt"
+        [ -n "$val" ] && printf "=%s" "$val"
+    else
+        printf -- "--without-%s" "$opt"
+        [ -n "$off" ] && printf "=%s" "$off"
+    fi
+}
+"#;
+
 pub fn run(recipe: &Recipe, paths: &Paths, log_dir: &Path) -> Result<BuildResult> {
     let name = &recipe.package.name;
     let version = &recipe.package.version;
@@ -55,14 +86,19 @@ pub fn run(recipe: &Recipe, paths: &Paths, log_dir: &Path) -> Result<BuildResult
         ("PV", version.clone()),
         ("PF", pf.clone()),
         ("P", pf.clone()),
+        ("S", work_dir.display().to_string()),
         ("WORKDIR", work_dir.display().to_string()),
         ("T", build_dir.join(".tmp").display().to_string()),
         ("D", dest_dir.display().to_string()),
+        ("EROOT", paths.root.display().to_string()),
         ("DISTDIR", paths.distdir.display().to_string()),
         ("NPROC", paths.jobs.to_string()),
         ("USE", recipe.active_flags(&paths.use_flags).join(" ")),
     ];
     std::fs::create_dir_all(build_dir.join(".tmp"))?;
+    let shim_path = build_dir.join(".flexura-shim.sh");
+    std::fs::write(&shim_path, SHIM)?;
+    let shim = shell_quote(&shim_path.display().to_string());
 
     let phases = [
         ("prepare", &recipe.build.prepare),
@@ -72,7 +108,7 @@ pub fn run(recipe: &Recipe, paths: &Paths, log_dir: &Path) -> Result<BuildResult
     ];
     for (phase, steps) in phases {
         for step in steps {
-            run_step(&pf, phase, step, &work_dir, &envs, &mut log)?;
+            run_step(&pf, phase, step, &work_dir, &envs, &shim, &mut log)?;
         }
     }
 
@@ -160,10 +196,12 @@ fn run_step(
     cmd: &str,
     cwd: &Path,
     envs: &[(&str, String)],
+    shim: &str,
     log: &mut std::fs::File,
 ) -> Result<()> {
+    let script = format!("source {};\n{}", shim, cmd);
     let mut c = Command::new("bash");
-    c.arg("-e").arg("-c").arg(cmd).current_dir(cwd);
+    c.arg("-e").arg("-c").arg(&script).current_dir(cwd);
     for (k, v) in envs {
         c.env(k, v);
     }
@@ -198,17 +236,14 @@ fn run_raw(cmd: &str) -> Result<()> {
     Ok(())
 }
 
-fn shell_quote(s: &str) -> String {
+pub fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 fn scan(base: &Path, dir: &Path, files: &mut Vec<String>, dirs: &mut Vec<String>) -> Result<()> {
     for e in std::fs::read_dir(dir)? {
         let p = e?.path();
-        let rel = p
-            .strip_prefix(base)?
-            .to_string_lossy()
-            .to_string();
+        let rel = p.strip_prefix(base)?.to_string_lossy().to_string();
         if p.is_dir() {
             dirs.push(rel.clone());
             scan(base, &p, files, dirs)?;
@@ -217,4 +252,45 @@ fn scan(base: &Path, dir: &Path, files: &mut Vec<String>, dirs: &mut Vec<String>
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shim_is_valid_bash() {
+        let st = Command::new("bash")
+            .arg("-n")
+            .arg("-c")
+            .arg(format!(
+                "source /dev/stdin <<'FLEXURA_SHIM'\n{}FLEXURA_SHIM",
+                SHIM
+            ))
+            .status()
+            .unwrap();
+        assert!(st.success());
+    }
+
+    #[test]
+    fn shim_helpers_work() {
+        let dir = std::env::temp_dir().join(format!("flexura-shim-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let shim = dir.join("shim.sh");
+        std::fs::write(&shim, SHIM).unwrap();
+        let out = Command::new("bash")
+            .arg("-c")
+            .arg(format!(
+                "source '{}'; echo $(use_enable ssl); echo $(use_with zlib); echo $(use_enable debug) | cat",
+                shim.display()
+            ))
+            .env("USE", "ssl")
+            .output()
+            .unwrap();
+        let text = String::from_utf8(out.stdout).unwrap();
+        assert!(text.contains("--enable-ssl"));
+        assert!(text.contains("--without-zlib"));
+        assert!(text.contains("--disable-debug"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

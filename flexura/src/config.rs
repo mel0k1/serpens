@@ -60,13 +60,25 @@ impl Paths {
     pub fn new(root: &Path, cfg: &Config, jobs_override: Option<usize>) -> Paths {
         let db = root.join("var/db/flexura");
         let tmpdir = root.join(cfg.main.tmpdir.as_deref().unwrap_or("var/tmp/flexura"));
-        let distdir = root.join(cfg.main.distdir.as_deref().unwrap_or("var/cache/flexura/distfiles"));
-        let pkgdir = root.join(cfg.main.pkgdir.as_deref().unwrap_or("var/cache/flexura/packages"));
+        let distdir = root.join(
+            cfg.main
+                .distdir
+                .as_deref()
+                .unwrap_or("var/cache/flexura/distfiles"),
+        );
+        let pkgdir = root.join(
+            cfg.main
+                .pkgdir
+                .as_deref()
+                .unwrap_or("var/cache/flexura/packages"),
+        );
         let logs = root.join("var/log/flexura");
         let world = db.join("world");
-        let jobs = jobs_override
-            .or(cfg.main.jobs)
-            .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1));
+        let jobs = jobs_override.or(cfg.main.jobs).unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1)
+        });
         let mut repos = Vec::new();
         for raw in &cfg.main.repos {
             let p = PathBuf::from(raw);
@@ -108,7 +120,13 @@ impl Paths {
     }
 
     pub fn ensure_dirs(&self) -> Result<()> {
-        for d in [&self.db, &self.distdir, &self.tmpdir, &self.pkgdir, &self.logs] {
+        for d in [
+            &self.db,
+            &self.distdir,
+            &self.tmpdir,
+            &self.pkgdir,
+            &self.logs,
+        ] {
             std::fs::create_dir_all(d)?;
         }
         Ok(())

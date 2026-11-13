@@ -29,22 +29,38 @@ pub fn uninstall_files(paths: &Paths, _name: &str, entry: &Installed) -> Result<
 pub fn run(paths: &Paths, targets: &[String], assume_yes: bool) -> Result<()> {
     let dbpath = paths.db.join("installed.json");
     let mut db = db::load(&dbpath)?;
-    let mut removed = Vec::new();
+    let mut selected: Vec<(String, Installed)> = Vec::new();
     for t in targets {
-        let name = util::parse_dep(t).0;
-        match db.get(&name) {
-            Some(e) => removed.push((name.clone(), e.clone())),
-            None => util::warn(&format!("{} не установлен", name)),
+        let d = util::parse_dep(t);
+        let hits: Vec<(String, Installed)> = db::matching(&db, &d.name, d.slot.as_deref())
+            .into_iter()
+            .map(|(k, e)| (k.clone(), e.clone()))
+            .collect();
+        if hits.is_empty() {
+            util::warn(&format!("{} не установлен", d.name));
+        }
+        for (k, e) in hits {
+            if !selected.iter().any(|(sk, _)| sk == &k) {
+                selected.push((k, e));
+            }
         }
     }
-    if removed.is_empty() {
+    if selected.is_empty() {
         return Ok(());
     }
-    for (name, e) in &removed {
-        util::info(&format!("к удалению {} {}", util::bold(name), util::dim(&e.version)));
+    for (k, e) in &selected {
+        util::info(&format!(
+            "к удалению {} {} {}",
+            util::bold(k),
+            util::dim(&e.version),
+            util::dim(&format!("{} файлов", e.files.len()))
+        ));
     }
     if !assume_yes {
-        print!("удалить {}? [y/N] ", util::plural_ru(removed.len(), "пакет", "пакета", "пакетов"));
+        print!(
+            "удалить {}? [y/N] ",
+            util::plural_ru(selected.len(), "пакет", "пакета", "пакетов")
+        );
         std::io::stdout().flush()?;
         let mut line = String::new();
         std::io::stdin().read_line(&mut line)?;
@@ -54,14 +70,16 @@ pub fn run(paths: &Paths, targets: &[String], assume_yes: bool) -> Result<()> {
             return Ok(());
         }
     }
-    for (name, e) in &removed {
-        uninstall_files(paths, name, e)?;
-        db.remove(name);
-        util::info(&format!("удалён {}-{}", name, e.version));
+    let mut removed_names = Vec::new();
+    for (k, e) in &selected {
+        uninstall_files(paths, k, e)?;
+        db.remove(k);
+        removed_names.push(k.clone());
+        util::info(&format!("удалён {}-{}", k, e.version));
     }
     db::save(&dbpath, &db)?;
     let mut w = world::load(&paths.world);
-    w.retain(|x| !removed.iter().any(|(n, _)| n == x));
+    w.retain(|x| !removed_names.contains(x));
     world::save(&paths.world, &w)?;
     Ok(())
 }
@@ -72,9 +90,9 @@ pub fn depclean(paths: &Paths, assume_yes: bool) -> Result<()> {
     let w = world::load(&paths.world);
     let keep = resolver::required_set(paths, &db, &w)?;
     let mut candidates = Vec::new();
-    for (name, e) in &db {
-        if !keep.contains(name) {
-            candidates.push((name.clone(), e.clone()));
+    for (k, e) in &db {
+        if !keep.contains(k) {
+            candidates.push((k.clone(), e.clone()));
         }
     }
     if candidates.is_empty() {
@@ -85,7 +103,10 @@ pub fn depclean(paths: &Paths, assume_yes: bool) -> Result<()> {
         println!("  {} {}", util::bold(name), util::dim(&e.version));
     }
     if !assume_yes {
-        print!("удалить {}? [y/N] ", util::plural_ru(candidates.len(), "пакет", "пакета", "пакетов"));
+        print!(
+            "удалить {}? [y/N] ",
+            util::plural_ru(candidates.len(), "пакет", "пакета", "пакетов")
+        );
         std::io::stdout().flush()?;
         let mut line = String::new();
         std::io::stdin().read_line(&mut line)?;
@@ -96,10 +117,10 @@ pub fn depclean(paths: &Paths, assume_yes: bool) -> Result<()> {
         }
     }
     let mut newdb = db.clone();
-    for (name, e) in &candidates {
-        uninstall_files(paths, name, e)?;
-        newdb.remove(name);
-        util::info(&format!("удалён {}-{}", name, e.version));
+    for (k, e) in &candidates {
+        uninstall_files(paths, k, e)?;
+        newdb.remove(k);
+        util::info(&format!("удалён {}-{}", k, e.version));
     }
     db::save(&dbpath, &newdb)?;
     Ok(())

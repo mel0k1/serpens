@@ -3,7 +3,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-#[derive(Deserialize, Serialize, Clone)]
+use crate::util;
+
+pub const DEFAULT_SLOT: &str = "0";
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Recipe {
     pub package: Package,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -16,7 +20,7 @@ pub struct Recipe {
     pub build: Build,
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Package {
     pub name: String,
     pub version: String,
@@ -25,16 +29,22 @@ pub struct Package {
     pub homepage: String,
     #[serde(default)]
     pub license: String,
+    #[serde(default = "default_slot")]
+    pub slot: String,
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+fn default_slot() -> String {
+    DEFAULT_SLOT.to_string()
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Source {
     pub url: String,
     #[serde(default)]
     pub sha256: Option<String>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
 pub struct Deps {
     #[serde(default)]
     pub build: Vec<String>,
@@ -44,13 +54,13 @@ pub struct Deps {
     pub optional: BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
 pub struct RecipeFlags {
     #[serde(default)]
     pub default: Vec<String>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default)]
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
 pub struct Build {
     #[serde(default)]
     pub prepare: Vec<String>,
@@ -125,23 +135,42 @@ impl Recipe {
     }
 }
 
-pub fn find_recipe(repos: &[PathBuf], name: &str) -> Result<(PathBuf, Recipe)> {
+pub fn find_recipe_slot(
+    repos: &[PathBuf],
+    name: &str,
+    slot: Option<&str>,
+) -> Result<(PathBuf, Recipe)> {
     for repo in repos {
-        let mut found: Option<Recipe> = None;
+        let mut found: Vec<Recipe> = Vec::new();
         walk_flx(repo, &mut |p| {
-            if found.is_none() {
-                if let Ok(r) = Recipe::load(p) {
-                    if r.package.name == name {
-                        found = Some(r);
-                    }
+            if let Ok(r) = Recipe::load(p) {
+                if r.package.name == name {
+                    found.push(r);
                 }
             }
         });
-        if let Some(r) = found {
-            return Ok((repo.clone(), r));
+        if !found.is_empty() {
+            let picked = pick(&found, slot)?;
+            return Ok((repo.clone(), picked));
         }
     }
     bail!("рецепт {} не найден в репозиториях", name)
+}
+
+fn pick(candidates: &[Recipe], slot: Option<&str>) -> Result<Recipe> {
+    let mut pool: Vec<&Recipe> = candidates.iter().collect();
+    if let Some(s) = slot {
+        pool.retain(|r| r.package.slot == s);
+        if pool.is_empty() {
+            bail!(
+                "пакет {} есть, но без слота {}",
+                candidates[0].package.name,
+                s
+            );
+        }
+    }
+    pool.sort_by(|a, b| util::version_cmp(&b.package.version, &a.package.version));
+    Ok(pool[0].clone())
 }
 
 pub fn all_recipes(repos: &[PathBuf]) -> Vec<Recipe> {

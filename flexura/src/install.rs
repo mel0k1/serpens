@@ -23,26 +23,43 @@ pub fn run(paths: &Paths, targets: &[String], force: bool) -> Result<()> {
         return Ok(());
     }
     paths.ensure_dirs()?;
-    util::info(&format!("план сборки, {}:", util::plural_ru(plan.order.len(), "пакет", "пакета", "пакетов")));
+    util::info(&format!(
+        "план сборки, {}:",
+        util::plural_ru(plan.order.len(), "пакет", "пакета", "пакетов")
+    ));
     for r in &plan.order {
-        let action = match db.get(&r.package.name) {
+        let action = match db::lookup(&db, &r.package.name, Some(&r.package.slot)) {
             Some(e) if e.version == r.package.version && !force => util::dim("пересборка"),
             Some(e) => util::yellow(&format!("обновление с {}", e.version)),
             None => util::green("новый"),
         };
-        println!("  {} {} {}", action, util::bold(&r.package.name), util::dim(&r.package.version));
+        println!(
+            "  {} {} {}{}",
+            action,
+            util::bold(&r.package.name),
+            util::dim(&r.package.version),
+            if r.package.slot == "0" {
+                String::new()
+            } else {
+                util::dim(&format!(":{}", r.package.slot))
+            }
+        );
     }
     let mut newdb = db.clone();
     for r in &plan.order {
         let pf = format!("{}-{}", r.package.name, r.package.version);
-        let rebuild = match db.get(&r.package.name) {
+        let rebuild = match db::lookup(&db, &r.package.name, Some(&r.package.slot)) {
             Some(e) => e.version == r.package.version,
             None => false,
         };
-        let verb = if rebuild { "пересборка" } else { "сборка" };
+        let verb = if rebuild {
+            "пересборка"
+        } else {
+            "сборка"
+        };
         util::info(&format!("{} {}", verb, util::bold(&pf)));
         let result = build::run(r, paths, &paths.logs)?;
-        if let Some(old) = db.get(&r.package.name) {
+        if let Some(old) = db::lookup(&db, &r.package.name, Some(&r.package.slot)) {
             if old.version != r.package.version {
                 crate::remove::uninstall_files(paths, &r.package.name, old)?;
             }
@@ -58,9 +75,13 @@ pub fn run(paths: &Paths, targets: &[String], force: bool) -> Result<()> {
     db::save(&dbpath, &newdb)?;
     let mut w = world::load(&paths.world);
     for t in targets {
-        let name = util::parse_dep(t).0;
-        if !w.contains(&name) {
-            w.push(name);
+        let d = util::parse_dep(t);
+        let entry = match &d.slot {
+            Some(s) => db::key(&d.name, s),
+            None => d.name.clone(),
+        };
+        if !w.contains(&entry) {
+            w.push(entry);
         }
     }
     world::save(&paths.world, &w)?;
@@ -73,7 +94,10 @@ pub fn upgrade(paths: &Paths) -> Result<()> {
         util::warn("world пуст, обновлять нечего");
         return Ok(());
     }
-    util::info(&format!("обновляю мир, {}", util::plural_ru(w.len(), "пакет", "пакета", "пакетов")));
+    util::info(&format!(
+        "обновляю мир, {}",
+        util::plural_ru(w.len(), "пакет", "пакета", "пакетов")
+    ));
     run(paths, &w, false)
 }
 
@@ -104,12 +128,12 @@ pub fn quickpkg(paths: &Paths, names: &[String]) -> Result<()> {
     let db = db::load(&dbpath)?;
     paths.ensure_dirs()?;
     for n in names {
-        let name = util::parse_dep(n).0;
-        let Some(e) = db.get(&name) else {
-            util::warn(&format!("{} не установлен", name));
+        let d = util::parse_dep(n);
+        let Some(e) = db::lookup(&db, &d.name, d.slot.as_deref()) else {
+            util::warn(&format!("{} не установлен", d.name));
             continue;
         };
-        let pf = format!("{}-{}", name, e.version);
+        let pf = format!("{}-{}", d.name, e.version);
         let out = paths.pkgdir.join(format!("{}.ftar.tar.gz", pf));
         let list = paths.tmpdir.join(format!("{}.pkglist", pf));
         std::fs::write(&list, format!("{}\n", e.files.join("\n")))?;
@@ -166,7 +190,8 @@ fn merge(recipe: &Recipe, paths: &Paths, result: &build::BuildResult, db: &mut D
         use_flags: recipe.active_flags(&paths.use_flags),
         built: timestamp(),
         size: result.size,
+        slot: recipe.package.slot.clone(),
     };
-    db.insert(recipe.package.name.clone(), inst);
+    db.insert(db::key(&recipe.package.name, &recipe.package.slot), inst);
     Ok(())
 }

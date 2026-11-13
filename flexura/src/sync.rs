@@ -8,9 +8,7 @@ use crate::util;
 pub fn run(paths: &Paths) -> Result<()> {
     paths.ensure_dirs()?;
     if paths.repos_raw.is_empty() {
-        util::warn(
-            "список репозиториев пуст, пропиши [main] repos в etc/flexura/flexura.conf",
-        );
+        util::warn("список репозиториев пуст, пропиши [main] repos в etc/flexura/flexura.conf");
         return Ok(());
     }
     for raw in &paths.repos_raw {
@@ -18,7 +16,10 @@ pub fn run(paths: &Paths) -> Result<()> {
             let dir = paths.url_repo_dir(raw);
             if dir.join(".git").exists() {
                 git(&["pull", "--ff-only"], &dir)?;
-                util::info(&format!("обновлён {}", util::bold(&dir.display().to_string())));
+                util::info(&format!(
+                    "обновлён {}",
+                    util::bold(&dir.display().to_string())
+                ));
             } else {
                 if let Some(parent) = dir.parent() {
                     std::fs::create_dir_all(parent)?;

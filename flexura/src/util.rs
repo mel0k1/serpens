@@ -102,7 +102,88 @@ pub struct Constraint {
     pub version: Option<String>,
 }
 
-pub fn parse_dep(spec: &str) -> (String, Constraint) {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Blocker {
+    None,
+    Soft,
+    Hard,
+}
+
+#[derive(Debug, Clone)]
+pub struct Dep {
+    pub name: String,
+    pub constraint: Constraint,
+    pub slot: Option<String>,
+    pub blocker: Blocker,
+}
+
+impl Dep {
+    pub fn is_blocker(&self) -> bool {
+        self.blocker != Blocker::None
+    }
+}
+
+impl std::fmt::Display for Dep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.blocker == Blocker::Hard {
+            write!(f, "!!")?;
+        } else if self.blocker == Blocker::Soft {
+            write!(f, "!")?;
+        }
+        write!(f, "{}{}", self.name, constraint_str(&self.constraint))?;
+        if let Some(s) = &self.slot {
+            write!(f, ":{}", s)?;
+        }
+        Ok(())
+    }
+}
+
+pub fn parse_dep(spec: &str) -> Dep {
+    let s = spec.trim();
+    let (blocker, s) = if let Some(r) = s.strip_prefix("!!") {
+        (Blocker::Hard, r)
+    } else if let Some(r) = s.strip_prefix('!') {
+        (Blocker::Soft, r)
+    } else {
+        (Blocker::None, s)
+    };
+    let (body, slot) = split_slot(s);
+    let (name, constraint) = parse_body(body);
+    Dep {
+        name: strip_category(&name),
+        constraint,
+        slot,
+        blocker,
+    }
+}
+
+pub fn strip_category(name: &str) -> String {
+    match name.rfind('/') {
+        Some(i) => name[i + 1..].to_string(),
+        None => name.to_string(),
+    }
+}
+
+fn split_slot(s: &str) -> (&str, Option<String>) {
+    if let Some(pos) = s.rfind(':') {
+        let tail = &s[pos + 1..];
+        let ok = !tail.is_empty()
+            && tail
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
+            && tail
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_alphanumeric())
+                .unwrap_or(false);
+        if ok {
+            return (&s[..pos], Some(tail.to_string()));
+        }
+    }
+    (s, None)
+}
+
+fn parse_body(spec: &str) -> (String, Constraint) {
     let spec = spec.trim();
     let (op, rest) = if let Some(r) = spec.strip_prefix(">=") {
         (Op::Ge, r)
@@ -227,7 +308,7 @@ pub fn constraint_matches(version: &str, c: &Constraint) -> bool {
         Op::Tilde => {
             let base: Vec<&str> = target.split('.').take(2).collect();
             let vbase: Vec<String> = version_key(version).into_iter().take(2).collect();
-            vbase.iter().map(|s| s.as_str()).eq(base.into_iter())
+            vbase.iter().map(|s| s.as_str()).eq(base)
         }
     }
 }
@@ -260,28 +341,76 @@ mod tests {
 
     #[test]
     fn dep_parsing() {
-        let (n, c) = parse_dep(">=ncurses-6.0");
-        assert_eq!(n, "ncurses");
-        assert!(constraint_matches("6.5", &c));
-        assert!(!constraint_matches("5.9", &c));
-        let (n4, c4) = parse_dep("ncurses>=6.0");
-        assert_eq!(n4, "ncurses");
-        assert!(constraint_matches("6.5", &c4));
-        assert!(!constraint_matches("5.9", &c4));
-        let (n2, c2) = parse_dep("lm-sensors");
-        assert_eq!(n2, "lm-sensors");
-        assert_eq!(c2.op, Op::Any);
-        let (n3, c3) = parse_dep("hello=1.0");
-        assert_eq!(n3, "hello");
-        assert!(constraint_matches("1.0", &c3));
-        assert!(!constraint_matches("1.1", &c3));
+        let d = parse_dep(">=ncurses-6.0");
+        assert_eq!(d.name, "ncurses");
+        assert!(constraint_matches("6.5", &d.constraint));
+        assert!(!constraint_matches("5.9", &d.constraint));
+        assert_eq!(d.slot, None);
+        assert_eq!(d.blocker, Blocker::None);
+        let d4 = parse_dep("ncurses>=6.0");
+        assert_eq!(d4.name, "ncurses");
+        assert!(constraint_matches("6.5", &d4.constraint));
+        let d2 = parse_dep("lm-sensors");
+        assert_eq!(d2.name, "lm-sensors");
+        assert_eq!(d2.constraint.op, Op::Any);
+        let d3 = parse_dep("hello=1.0");
+        assert_eq!(d3.name, "hello");
+        assert!(constraint_matches("1.0", &d3.constraint));
+        assert!(!constraint_matches("1.1", &d3.constraint));
+    }
+
+    #[test]
+    fn slot_parsing() {
+        let d = parse_dep("openssl:1.1");
+        assert_eq!(d.name, "openssl");
+        assert_eq!(d.slot.as_deref(), Some("1.1"));
+        let d = parse_dep(">=openssl-1.1.1:1.1");
+        assert_eq!(d.name, "openssl");
+        assert_eq!(d.slot.as_deref(), Some("1.1"));
+        assert!(constraint_matches("1.1.1w", &d.constraint));
+        let d = parse_dep("openssl>=3.0:3.0");
+        assert_eq!(d.name, "openssl");
+        assert_eq!(d.slot.as_deref(), Some("3.0"));
+        assert!(constraint_matches("3.3.1", &d.constraint));
+        let d = parse_dep("ncurses:6");
+        assert_eq!(d.slot.as_deref(), Some("6"));
+        assert_eq!(d.constraint.op, Op::Any);
+        let d = parse_dep("dev-lang/python:3.12");
+        assert_eq!(d.name, "python");
+        assert_eq!(d.slot.as_deref(), Some("3.12"));
+        let d = parse_dep("dev-libs/openssl>=3.0");
+        assert_eq!(d.name, "openssl");
+        assert!(constraint_matches("3.3.1", &d.constraint));
+        let d = parse_dep("lm-sensors");
+        assert_eq!(d.slot, None);
+        assert_eq!(parse_dep("bash-5.2").slot, None);
+    }
+
+    #[test]
+    fn blocker_parsing() {
+        let d = parse_dep("!openssl");
+        assert_eq!(d.blocker, Blocker::Soft);
+        assert_eq!(d.name, "openssl");
+        assert_eq!(d.to_string(), "!openssl");
+        let d = parse_dep("!!openssl>=3.0");
+        assert_eq!(d.blocker, Blocker::Hard);
+        assert!(constraint_matches("3.3.1", &d.constraint));
+        assert_eq!(d.to_string(), "!!openssl>=3.0");
+        let d = parse_dep("!openssl:1.1");
+        assert_eq!(d.blocker, Blocker::Soft);
+        assert_eq!(d.slot.as_deref(), Some("1.1"));
+        assert_eq!(d.to_string(), "!openssl:1.1");
+        let d = parse_dep("!hello-1.0");
+        assert_eq!(d.blocker, Blocker::Soft);
+        assert_eq!(d.name, "hello");
+        assert_eq!(d.constraint.op, Op::Any);
     }
 
     #[test]
     fn constraint_text() {
-        let (_, c) = parse_dep("~bash-5.2");
-        assert_eq!(constraint_str(&c), "~5.2");
-        assert!(constraint_matches("5.2.37", &c));
-        assert!(!constraint_matches("6.0.0", &c));
+        let d = parse_dep("~bash-5.2");
+        assert_eq!(constraint_str(&d.constraint), "~5.2");
+        assert!(constraint_matches("5.2.37", &d.constraint));
+        assert!(!constraint_matches("6.0.0", &d.constraint));
     }
 }
