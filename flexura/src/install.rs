@@ -10,14 +10,14 @@ use crate::resolver;
 use crate::util;
 use crate::world;
 
-pub fn run(paths: &Paths, targets: &[String], force: bool) -> Result<()> {
+pub fn run(paths: &Paths, targets: &[String], force: bool, upgrade: bool) -> Result<()> {
     if targets.is_empty() {
         util::warn("укажи хотя бы один пакет");
         return Ok(());
     }
     let dbpath = paths.db.join("installed.json");
     let db = db::load(&dbpath)?;
-    let plan = resolver::resolve(paths, &db, targets, force)?;
+    let plan = resolver::resolve(paths, &db, targets, force, upgrade)?;
     if plan.order.is_empty() {
         util::info("делать нечего, всё уже установлено");
         return Ok(());
@@ -98,13 +98,13 @@ pub fn upgrade(paths: &Paths) -> Result<()> {
         "обновляю мир, {}",
         util::plural_ru(w.len(), "пакет", "пакета", "пакетов")
     ));
-    run(paths, &w, false)
+    run(paths, &w, false, true)
 }
 
 pub fn fetch_only(paths: &Paths, targets: &[String], force: bool) -> Result<()> {
     let dbpath = paths.db.join("installed.json");
     let db = db::load(&dbpath)?;
-    let plan = resolver::resolve(paths, &db, targets, force)?;
+    let plan = resolver::resolve(paths, &db, targets, force, false)?;
     paths.ensure_dirs()?;
     for r in &plan.order {
         match &r.source {

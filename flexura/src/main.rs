@@ -36,7 +36,7 @@ fn run(args: &Args) -> Result<()> {
     let paths = config::Paths::new(Path::new(&root), &cfg, args.jobs);
     match &args.command {
         Command::Sync => sync::run(&paths),
-        Command::Install { packages, force } => install::run(&paths, packages, *force),
+        Command::Install { packages, force } => install::run(&paths, packages, *force, false),
         Command::Remove { packages, yes } => remove::run(&paths, packages, *yes),
         Command::Search { query } => query::search(&paths, query),
         Command::Info { package } => match package {

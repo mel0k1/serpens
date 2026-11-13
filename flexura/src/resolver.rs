@@ -11,7 +11,13 @@ pub struct Plan {
     pub order: Vec<Recipe>,
 }
 
-pub fn resolve(paths: &Paths, db: &Db, targets: &[String], force: bool) -> Result<Plan> {
+pub fn resolve(
+    paths: &Paths,
+    db: &Db,
+    targets: &[String],
+    force: bool,
+    upgrade: bool,
+) -> Result<Plan> {
     let mut state = State {
         planned: BTreeMap::new(),
         constraints: BTreeMap::new(),
@@ -23,6 +29,22 @@ pub fn resolve(paths: &Paths, db: &Db, targets: &[String], force: bool) -> Resul
         let d = parse_dep(t);
         if d.is_blocker() {
             bail!("блокер {} нельзя ставить как цель установки", d);
+        }
+        if upgrade {
+            let (_, best) =
+                crate::recipe::find_recipe_slot(&paths.repos, &d.name, d.slot.as_deref())?;
+            if !db::matching(db, &best.package.name, Some(&best.package.slot))
+                .iter()
+                .any(|(_, e)| e.version == best.package.version)
+            {
+                state
+                    .constraints
+                    .entry((d.name.clone(), d.slot.clone()))
+                    .or_default()
+                    .push(d.constraint.clone());
+                state.plan_recipe(&best, paths, db)?;
+            }
+            continue;
         }
         state
             .constraints
@@ -143,9 +165,16 @@ impl State {
             return Ok(());
         }
         let (_, recipe) = find_recipe_slot(&paths.repos, &dep.name, dep.slot.as_deref())?;
-        let version = recipe.package.version.clone();
-        self.check(&dep.name, Some(&recipe.package.slot), &version)?;
-        let pkey = (dep.name.clone(), recipe.package.slot.clone());
+        self.plan_recipe(&recipe, paths, db)
+    }
+
+    fn plan_recipe(&mut self, recipe: &Recipe, paths: &Paths, db: &Db) -> Result<()> {
+        self.check(
+            &recipe.package.name,
+            Some(&recipe.package.slot),
+            &recipe.package.version,
+        )?;
+        let pkey = (recipe.package.name.clone(), recipe.package.slot.clone());
         if self.planned.contains_key(&pkey) {
             return Ok(());
         }
@@ -302,7 +331,7 @@ mod tests {
             &base.join("repo/tools/app.flx"),
             &recipe_toml("app", "1.0", "0", "build = [\"openssl:1.1\"]"),
         );
-        let plan = resolve(&paths, &db, &["app".into()], false).unwrap();
+        let plan = resolve(&paths, &db, &["app".into()], false, false).unwrap();
         let names: Vec<&str> = plan.order.iter().map(|r| r.package.name.as_str()).collect();
         assert_eq!(names, vec!["zlib", "openssl", "app"]);
         assert_eq!(plan.order[1].package.slot, "1.1");
@@ -316,7 +345,7 @@ mod tests {
             &base.join("repo/libs/openssl.flx"),
             &recipe_toml("openssl", "3.3.1", "3.0", ""),
         );
-        let err = resolve(&paths, &db, &["openssl:1.1".into()], false).unwrap_err();
+        let err = resolve(&paths, &db, &["openssl:1.1".into()], false, false).unwrap_err();
         assert!(err.to_string().contains("1.1"));
         std::fs::remove_dir_all(&base).unwrap();
     }
@@ -333,7 +362,7 @@ mod tests {
             &recipe_toml("app", "1.0", "0", "build = [\"zlib>=1.0:0\"]"),
         );
         install(&mut db, "zlib", "0", "1.3.1");
-        let plan = resolve(&paths, &db, &["app".into()], false).unwrap();
+        let plan = resolve(&paths, &db, &["app".into()], false, false).unwrap();
         assert_eq!(plan.order.len(), 1);
         std::fs::remove_dir_all(&base).unwrap();
     }
@@ -349,9 +378,16 @@ mod tests {
             &base.join("repo/new.flx"),
             &recipe_toml("newmail", "2.0", "0", "build = [\"!oldmail\"]"),
         );
-        let err = resolve(&paths, &db, &["newmail".into(), "oldmail".into()], false).unwrap_err();
+        let err = resolve(
+            &paths,
+            &db,
+            &["newmail".into(), "oldmail".into()],
+            false,
+            false,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("блокер"));
-        let plan = resolve(&paths, &db, &["newmail".into()], false).unwrap();
+        let plan = resolve(&paths, &db, &["newmail".into()], false, false).unwrap();
         assert_eq!(plan.order.len(), 1);
         std::fs::remove_dir_all(&base).unwrap();
     }
@@ -364,7 +400,7 @@ mod tests {
             &recipe_toml("newmail", "2.0", "0", "build = [\"!!oldmail>=1\"]"),
         );
         install(&mut db, "oldmail", "0", "1.0");
-        let err = resolve(&paths, &db, &["newmail".into()], false).unwrap_err();
+        let err = resolve(&paths, &db, &["newmail".into()], false, false).unwrap_err();
         assert!(err.to_string().contains("установленным"));
         std::fs::remove_dir_all(&base).unwrap();
     }
@@ -377,7 +413,7 @@ mod tests {
             &recipe_toml("newmail", "2.0", "0", "build = [\"!oldmail\"]"),
         );
         install(&mut db, "oldmail", "0", "1.0");
-        let plan = resolve(&paths, &db, &["newmail".into()], false).unwrap();
+        let plan = resolve(&paths, &db, &["newmail".into()], false, false).unwrap();
         assert_eq!(plan.order.len(), 1);
         std::fs::remove_dir_all(&base).unwrap();
     }
@@ -397,7 +433,7 @@ mod tests {
             &base.join("repo/tools/b.flx"),
             &recipe_toml("b", "1.0", "0", "build = [\"ncurses<6.0\"]"),
         );
-        let err = resolve(&paths, &db, &["a".into(), "b".into()], false).unwrap_err();
+        let err = resolve(&paths, &db, &["a".into(), "b".into()], false, false).unwrap_err();
         assert!(err.to_string().contains("ограничению"));
         std::fs::remove_dir_all(&base).unwrap();
     }
@@ -424,6 +460,54 @@ mod tests {
         assert!(keep.contains("app:0"));
         assert!(keep.contains("zlib:0"));
         assert!(!keep.contains("extra:0"));
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn upgrade_picks_best_candidate() {
+        let (paths, mut db, base) = setup("upgrade");
+        write(
+            &base.join("repo/app-10.flx"),
+            &recipe_toml("app", "1.0", "0", "runtime = [\"zlib>=1.0\"]"),
+        );
+        write(
+            &base.join("repo/app-11.flx"),
+            &recipe_toml("app", "1.1", "0", "runtime = [\"zlib>=1.2\"]"),
+        );
+        write(
+            &base.join("repo/libs/zlib.flx"),
+            &recipe_toml("zlib", "1.3.1", "0", ""),
+        );
+        install(&mut db, "app", "0", "1.0");
+        let same = resolve(&paths, &db, &["app".into()], false, false).unwrap();
+        assert!(same.order.is_empty());
+        let mut udb = db.clone();
+        install(&mut udb, "zlib", "0", "1.2.0");
+        let plan = resolve(&paths, &udb, &["app".into()], false, true).unwrap();
+        assert_eq!(plan.order.len(), 1);
+        assert_eq!(plan.order[0].package.version, "1.1");
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn upgrade_skips_current_and_pulls_missing_deps() {
+        let (paths, mut db, base) = setup("upcur");
+        write(
+            &base.join("repo/app-11.flx"),
+            &recipe_toml("app", "1.1", "0", "runtime = [\"zlib>=1.2\"]"),
+        );
+        write(
+            &base.join("repo/libs/zlib.flx"),
+            &recipe_toml("zlib", "1.3.1", "0", ""),
+        );
+        install(&mut db, "app", "0", "1.1");
+        let cur = resolve(&paths, &db, &["app".into()], false, true).unwrap();
+        assert!(cur.order.is_empty());
+        let fresh = Db::new();
+        let plan = resolve(&paths, &fresh, &["app".into()], false, true).unwrap();
+        assert_eq!(plan.order.len(), 2);
+        assert_eq!(plan.order[0].package.name, "zlib");
+        assert_eq!(plan.order[1].package.name, "app");
         std::fs::remove_dir_all(&base).unwrap();
     }
 }
