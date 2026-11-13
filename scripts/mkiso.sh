@@ -100,11 +100,19 @@ chmod +x "$INITFS/init"
     > "$ISO/boot/initramfs.cpio.gz"
 
 cat > "$ISO/boot/grub/grub.cfg" <<'GRUB_EOF'
+serial --unit=0 --speed=115200
+terminal_input serial console
+terminal_output serial console
 set timeout=3
 set default=0
+echo "grub: старт Serpens live"
 menuentry "Serpens live" {
-    linux /boot/vmlinuz-serpens console=tty0 console=ttyS0,115200
+    echo "grub: загружаю ядро"
+    linux /boot/vmlinuz-serpens console=tty0 console=ttyS0,115200 earlyprintk=serial,ttyS0,115200,keep
+    echo "grub: загружаю initramfs"
     initrd /boot/initramfs.cpio.gz
+    echo "grub: передаю управление ядру"
+    boot
 }
 GRUB_EOF
 

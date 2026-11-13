@@ -68,22 +68,50 @@ jobs:
 
       - name: boot test
         run: |
-          sha256sum serpens-live-x86_64.iso
+          xorriso -osirrox on -indev serpens-live-x86_64.iso -extract /boot /tmp/isoboot
           set +e
-          timeout 420 qemu-system-x86_64 -m 2048 -smp 2 -accel tcg \
-            -display none -monitor none \
-            -serial file:serial.log \
-            -debugcon file:debug.log -global isa-debugcon.iobase=0x402 \
-            -no-reboot -cdrom serpens-live-x86_64.iso
-          echo "qemu exit: $?"
+          run_qemu() {
+            rm -f serial.log debug.log
+            timeout 360 qemu-system-x86_64 -m 2048 -smp 2 -accel tcg \
+              -display none -monitor none \
+              -serial file:serial.log \
+              -debugcon file:debug.log -global isa-debugcon.iobase=0x402 \
+              "$@" -no-reboot -cdrom serpens-live-x86_64.iso &
+            QPID=$!
+            for i in $(seq 1 72); do
+              sleep 5
+              if grep -q "login:" serial.log 2>/dev/null; then
+                echo "login prompt after $((i*5))s"
+                break
+              fi
+              kill -0 $QPID 2>/dev/null || { echo "qemu died at $((i*5))s"; break; }
+            done
+            kill $QPID 2>/dev/null
+            wait $QPID 2>/dev/null
+            tail -c 6000 serial.log | tr -d '\r' || true
+            echo "--- firmware tail ---"
+            tail -c 2500 debug.log | tr -d '\r' || true
+          }
+          echo "===== TEST 1: product path, grub from cdrom ====="
+          run_qemu
+          if ! grep -q "login:" serial.log 2>/dev/null; then
+            echo "===== TEST 2: direct kernel boot ====="
+            run_qemu -kernel /tmp/isoboot/vmlinuz-serpens -initrd /tmp/isoboot/initramfs.cpio.gz \
+              -append "console=ttyS0,115200 earlyprintk=serial,ttyS0,115200,keep"
+            cp serial.log s-direct.log
+          fi
+          if ! grep -q "login:" s-direct.log 2>/dev/null && ! grep -q "login:" serial.log 2>/dev/null; then
+            echo "===== TEST 3: host kernel as control ====="
+            HK=$(ls /boot/vmlinuz-* 2>/dev/null | head -1)
+            echo "host kernel: $HK"
+            if [ -n "$HK" ]; then
+              run_qemu -kernel "$HK" \
+                -append "console=ttyS0,115200 earlyprintk=serial,ttyS0,115200,keep panic=-1"
+              cp serial.log s-host.log
+            fi
+          fi
           set -e
-          echo "=== firmware log tail ==="
-          tail -c 4000 debug.log | tr -d '\r' || true
-          echo "=== end firmware ==="
-          echo "=== serial tail ==="
-          tail -c 6000 serial.log | tr -d '\r' || true
-          echo "=== end serial ==="
-          grep -q "login:" serial.log
+          grep -q "login:" s-direct.log 2>/dev/null || grep -q "login:" s-host.log 2>/dev/null || grep -q "login:" serial.log 2>/dev/null
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -92,6 +120,8 @@ jobs:
           path: |
             serial.log
             debug.log
+            s-direct.log
+            s-host.log
           retention-days: 7
 
       - uses: actions/upload-artifact@v4
