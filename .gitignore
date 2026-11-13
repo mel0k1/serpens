@@ -1,4 +1,6 @@
 flexura/target/
+ebuild2flx/target/
+target/
 *.stage.tar.gz
 distfiles/
 var/
