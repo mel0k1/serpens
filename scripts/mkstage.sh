@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_URL="https://github.com/mel0k1/serpens.git"
 PROFILE="default/x86-64"
-DEFAULT_PKGS="serpens-base busybox bash coreutils ncurses zlib readline"
+DEFAULT_PKGS="serpens-base serpens-boot busybox bash coreutils ncurses zlib readline grub"
 
 usage() {
     echo "usage: mkstage.sh <output.tar.gz> [--pkgs \"список\"] [--profile ИМЯ] [--repo URL] [--jobs N] [--keep]"

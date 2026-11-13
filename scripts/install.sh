@@ -148,6 +148,10 @@ log "распаковываю stage в $MNT"
 tar -xzf "$STAGE_PATH" -C "$MNT" --numeric-owner
 mkdir -p "$MNT/dev" "$MNT/proc" "$MNT/sys" "$MNT/run"
 
+ROOT_UUID="$(blkid -s UUID -o value "$ROOT_DEV")"
+printf 'UUID=%s\t/\text4\tdefaults,noatime\t0 1\ntmpfs\t/tmp\ttmpfs\tnosuid,nodev,mode=1777\t0 0\n' "$ROOT_UUID" > "$MNT/etc/fstab"
+log "fstab записан, root=UUID=$ROOT_UUID"
+
 log "настраиваю chroot"
 mount --rbind /dev "$MNT/dev"
 mount --make-rslave "$MNT/dev"
@@ -174,12 +178,24 @@ if [ "$ASSUME_YES" = 0 ]; then
 fi
 
 if [ "$GRUB" = 1 ]; then
-    command -v grub-install >/dev/null || die "нет grub-install на хосте"
     log "ставлю grub"
-    if [ "$MODE" = "efi" ]; then
-        grub-install --target=x86_64-efi --efi-directory="$MNT/boot/efi" --boot-directory="$MNT/boot" --removable --no-nvram
+    if [ -x "$MNT/usr/bin/grub-install" ] || [ -x "$MNT/usr/sbin/grub-install" ]; then
+        log "grub из stage, ставлю через chroot"
+        if [ "$MODE" = "efi" ]; then
+            chroot "$MNT" /usr/bin/grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable --no-nvram \
+                || chroot "$MNT" /usr/sbin/grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable --no-nvram
+        else
+            chroot "$MNT" /usr/bin/grub-install --boot-directory=/boot "$DISK" \
+                || chroot "$MNT" /usr/sbin/grub-install --boot-directory=/boot "$DISK"
+        fi
     else
-        grub-install --boot-directory="$MNT/boot" "$DISK"
+        command -v grub-install >/dev/null || die "нет grub-install ни в stage, ни на хосте"
+        log "grub с хоста"
+        if [ "$MODE" = "efi" ]; then
+            grub-install --target=x86_64-efi --efi-directory="$MNT/boot/efi" --boot-directory="$MNT/boot" --removable --no-nvram
+        else
+            grub-install --boot-directory="$MNT/boot" "$DISK"
+        fi
     fi
     KERNELS="$(ls "$MNT"/boot/vmlinuz-* 2>/dev/null || true)"
     if [ -n "$KERNELS" ]; then
@@ -189,7 +205,7 @@ if [ "$GRUB" = 1 ]; then
             echo "set default=0"
             echo "menuentry \"Serpens Linux\" {"
             for k in $KERNELS; do
-                echo "    linux /boot/$(basename "$k") root=UUID=$ROOT_UUID rw"
+                echo "    linux /boot/$(basename "$k") root=UUID=$ROOT_UUID rw console=tty0 console=ttyS0,115200"
                 break
             done
             echo "}"
@@ -211,6 +227,9 @@ umount "$MNT" 2>/dev/null || umount -l "$MNT" || true
 
 log "готово. далее:"
 log "  1) задай пароль root: chroot $MNT passwd (если пропустил)"
-log "  2) собери ядро, когда recipe linux появится в дереве"
-log "  3) поставь загрузчик: grub-install из live-системы и grub.cfg"
-log "  4) перезагрузка: reboot"
+if ls "$MNT"/boot/vmlinuz-* >/dev/null 2>&1; then
+    log "  2) ядро уже в stage, grub.cfg записан — можно перезагружаться"
+else
+    log "  2) собери ядро: chroot $MNT flexura install linux"
+fi
+log "  3) перезагрузка: reboot"
