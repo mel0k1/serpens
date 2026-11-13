@@ -108,9 +108,17 @@ pub fn run(recipe: &Recipe, paths: &Paths, log_dir: &Path) -> Result<BuildResult
     ];
     for (phase, steps) in phases {
         for step in steps {
-            run_step(
-                &pf, phase, step, &work_dir, &envs, &shim, &mut log, &log_path,
-            )?;
+            let output = run_step(&pf, phase, step, &work_dir, &envs, &shim, &mut log)?;
+            if !output.status.success() {
+                report_failure(&pf, &output);
+                bail!(
+                    "{}: фаза {} завершилась с кодом {}, полный лог: {}",
+                    pf,
+                    phase,
+                    output.status.code().unwrap_or(-1),
+                    log_path.display()
+                );
+            }
         }
     }
 
@@ -206,8 +214,7 @@ fn run_step(
     envs: &[(&str, String)],
     shim: &str,
     log: &mut std::fs::File,
-    log_path: &std::path::Path,
-) -> Result<()> {
+) -> Result<std::process::Output> {
     let script = format!("source {};\n{}", shim, cmd);
     let mut c = Command::new("bash");
     c.arg("-e").arg("-c").arg(&script).current_dir(cwd);
@@ -220,34 +227,28 @@ fn run_step(
     log.write_all(format!("[{}] {}\n", phase, cmd).as_bytes())?;
     log.write_all(&output.stdout)?;
     log.write_all(&output.stderr)?;
-    if !output.status.success() {
-        let tail = String::from_utf8_lossy(&output.stderr);
-        let lines: Vec<&str> = tail.lines().collect();
-        let start = lines.len().saturating_sub(40);
-        for l in &lines[start..] {
+    Ok(output)
+}
+
+fn report_failure(pf: &str, output: &std::process::Output) {
+    let tail = String::from_utf8_lossy(&output.stderr);
+    let lines: Vec<&str> = tail.lines().collect();
+    let start = lines.len().saturating_sub(40);
+    for l in &lines[start..] {
+        util::error(&format!("{}| {}", pf, l));
+    }
+    let hits: Vec<&str> = lines
+        .iter()
+        .filter(|l| l.to_lowercase().contains("error"))
+        .take(20)
+        .copied()
+        .collect();
+    if !hits.is_empty() {
+        util::error(&format!("{}| ---", pf));
+        for l in &hits {
             util::error(&format!("{}| {}", pf, l));
         }
-        let hits: Vec<&str> = lines
-            .iter()
-            .filter(|l| l.to_lowercase().contains("error"))
-            .take(20)
-            .copied()
-            .collect();
-        if !hits.is_empty() {
-            util::error(&format!("{}| ---", pf));
-            for l in &hits {
-                util::error(&format!("{}| {}", pf, l));
-            }
-        }
-        bail!(
-            "{}: фаза {} завершилась с кодом {}, полный лог: {}",
-            pf,
-            phase,
-            output.status.code().unwrap_or(-1),
-            log_path.display()
-        );
     }
-    Ok(())
 }
 
 fn run_raw(cmd: &str) -> Result<()> {
