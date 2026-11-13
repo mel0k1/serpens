@@ -1,0 +1,4 @@
+flexura/target/
+*.stage.tar.gz
+distfiles/
+var/
