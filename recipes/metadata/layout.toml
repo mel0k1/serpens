@@ -1,0 +1,5 @@
+[repo]
+name = "serpens"
+description = "Основное дерево пакетов Serpens"
+signing = "none"
+quality = "experimental"

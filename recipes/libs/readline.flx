@@ -1,0 +1,17 @@
+[package]
+name = "readline"
+version = "8.2"
+description = "Библиотека редактирования строки для интерактивных программ"
+homepage = "https://tiswww.case.edu/php/chet/readline/rltop.html"
+license = "GPL-3.0"
+
+[source]
+url = "https://mirrors.kernel.org/gnu/readline/readline-8.2.tar.gz"
+
+[dependencies]
+runtime = ["ncurses>=6.0"]
+
+[build]
+configure = ["./configure --prefix=/usr --with-curses"]
+compile = ["make -j${NPROC}"]
+install = ["make DESTDIR=${D} install"]

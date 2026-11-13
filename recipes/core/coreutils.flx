@@ -1,0 +1,14 @@
+[package]
+name = "coreutils"
+version = "9.5"
+description = "Базовые утилиты GNU: ls, cp, mv, cat и остальные"
+homepage = "https://www.gnu.org/software/coreutils/"
+license = "GPL-3.0"
+
+[source]
+url = "https://mirrors.kernel.org/gnu/coreutils/coreutils-9.5.tar.xz"
+
+[build]
+configure = ["./configure --prefix=/usr --enable-single-binary=symlinks"]
+compile = ["make -j${NPROC}"]
+install = ["make DESTDIR=${D} install"]

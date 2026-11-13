@@ -1,0 +1,14 @@
+[package]
+name = "zlib"
+version = "1.3.1"
+description = "Библиотека сжатия, на которой держится половина интернета"
+homepage = "https://zlib.net/"
+license = "Zlib"
+
+[source]
+url = "https://zlib.net/zlib-1.3.1.tar.gz"
+
+[build]
+configure = ["./configure --prefix=/usr"]
+compile = ["make -j${NPROC}"]
+install = ["make prefix=${D}/usr install"]

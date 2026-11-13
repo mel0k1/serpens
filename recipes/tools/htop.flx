@@ -1,0 +1,20 @@
+[package]
+name = "htop"
+version = "3.3.0"
+description = "Интерактивный монитор процессов в терминале"
+homepage = "https://htop.dev/"
+license = "GPL-2.0"
+
+[source]
+url = "https://github.com/htop-dev/htop/releases/download/3.3.0/htop-3.3.0.tar.xz"
+
+[dependencies]
+build = ["ncurses>=6.0"]
+
+[flags]
+default = ["unicode"]
+
+[build]
+configure = ["./configure --prefix=/usr"]
+compile = ["make -j${NPROC}"]
+install = ["make DESTDIR=${D} install"]

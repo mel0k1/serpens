@@ -1,0 +1,62 @@
+[package]
+name = "serpens-base"
+version = "0.1.0"
+description = "Базовые файлы Serpens: os-release и ascii-логотип для fetch"
+homepage = "https://github.com/mel0k1/serpens"
+license = "GPL-3.0"
+
+[build]
+install = [
+  '''
+mkdir -p "$D/etc"
+cat > "$D/etc/os-release" <<'SERPENS_EOF'
+NAME="Serpens"
+PRETTY_NAME="Serpens Linux"
+ID=serpens
+HOME_URL="https://github.com/mel0k1/serpens"
+SUPPORT_URL="https://github.com/mel0k1/serpens/issues"
+ANSI_COLOR="1;35"
+BUILD_ID=rolling
+SERPENS_EOF
+  ''',
+  '''
+mkdir -p "$D/usr/share/serpens"
+cat > "$D/usr/share/serpens/serpens.ascii" <<'SERPENS_ASCII'
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                       .::*###=:                                      
+                    .*############.                                   
+                   +#####++###+=+###=.                                
+                  *###*      *#######.                                
+                 =####                              --                
+                 -####-   --###########+-       .*+-..=+#             
+                  +####+-*###*+.     =*#####.   #-.###* +#.           
+                    +#####+= -++*##+++.  :=###: #-*#=.#= #=           
+                   :#=+*#######*++++*####:  +###-*=-=#+ +#.           
+                  =###  +###.          -###: :####.   *#+             
+                 :##+  *##:  +########=: -##*  ##*..-:                
+                 =#*  ###  +##*.    .+##- :##+  ##.                   
+                .##* .##: :##. *####- :##* +##: ###                   
+                .##* =##: -## .#*:-##: =## +##- ###                   
+                .##*  ##- :##*.   *##..### +##: ###                   
+                 =##- :##* .#######*. *## -##+ :##.                   
+                  *##: :*#*=   ..   -*##:=##+ :##-                    
+                   ####   #############=###: :##* *###.               
+                   .*###+-  --=##########:  =##.++.  .-#:             
+                 .*#################*+.  :*##*#.#-.==# -=             
+                .#####...+####**+.  =**###+. :#=:####:.#:             
+                *###:       :-=*####*=-:      .-#+===*-.              
+                ###*                                                  
+                .###+.       :+**-                                    
+                  -##########==-:-#*                                  
+                                   *                                  
+                                  +:                                  
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+SERPENS_ASCII
+  ''',
+]

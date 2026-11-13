@@ -1,0 +1,20 @@
+[package]
+name = "openssl"
+version = "3.3.1"
+description = "Криптографическая библиотека и утилиты TLS"
+homepage = "https://www.openssl.org/"
+license = "Apache-2.0"
+
+[source]
+url = "https://www.openssl.org/source/openssl-3.3.1.tar.gz"
+
+[dependencies]
+runtime = ["zlib>=1.2"]
+
+[flags]
+default = ["zlib"]
+
+[build]
+configure = ["./config --prefix=/usr --openssldir=/etc/ssl shared zlib"]
+compile = ["make -j${NPROC}"]
+install = ["make DESTDIR=${D} install_sw install_ssldirs"]

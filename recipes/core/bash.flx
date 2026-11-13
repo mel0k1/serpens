@@ -1,0 +1,20 @@
+[package]
+name = "bash"
+version = "5.2.21"
+description = "GNU Bourne Again SHell"
+homepage = "https://www.gnu.org/software/bash/"
+license = "GPL-3.0"
+
+[source]
+url = "https://mirrors.kernel.org/gnu/bash/bash-5.2.21.tar.gz"
+
+[dependencies]
+build = ["readline>=8.0", "ncurses>=6.0"]
+
+[flags]
+default = ["readline"]
+
+[build]
+configure = ["./configure --prefix=/usr --with-installed-readline --without-bash-malloc"]
+compile = ["make -j${NPROC}"]
+install = ["make DESTDIR=${D} install"]

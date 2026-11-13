@@ -1,0 +1,20 @@
+[package]
+name = "curl"
+version = "8.8.0"
+description = "Клиент и библиотека для передачи данных по URL"
+homepage = "https://curl.se/"
+license = "MIT"
+
+[source]
+url = "https://curl.se/download/curl-8.8.0.tar.xz"
+
+[dependencies]
+build = ["openssl>=3.0", "zlib>=1.2"]
+
+[flags]
+default = ["ssl", "zlib"]
+
+[build]
+configure = ["./configure --prefix=/usr --with-openssl --with-zlib"]
+compile = ["make -j${NPROC}"]
+install = ["make DESTDIR=${D} install"]

@@ -1,0 +1,17 @@
+[package]
+name = "ncurses"
+version = "6.5"
+description = "Библиотека текстового интерфейса, панели и меню"
+homepage = "https://invisible-island.net/ncurses/"
+license = "MIT"
+
+[source]
+url = "https://mirrors.kernel.org/gnu/ncurses/ncurses-6.5.tar.gz"
+
+[flags]
+default = ["widec", "unicode"]
+
+[build]
+configure = ["./configure --prefix=/usr --with-shared --without-debug --enable-widec"]
+compile = ["make -j${NPROC}"]
+install = ["make DESTDIR=${D} install"]
