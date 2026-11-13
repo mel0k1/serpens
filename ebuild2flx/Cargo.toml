@@ -1,0 +1,11 @@
+[package]
+name = "ebuild2flx"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+description = "Конвертер ебилдов Gentoo в рецепты .flx для Serpens"
+authors = ["mel0k1"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
