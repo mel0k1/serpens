@@ -267,7 +267,10 @@ fn scan(base: &Path, dir: &Path, files: &mut Vec<String>, dirs: &mut Vec<String>
     for e in std::fs::read_dir(dir)? {
         let p = e?.path();
         let rel = p.strip_prefix(base)?.to_string_lossy().to_string();
-        if p.is_dir() {
+        let md = std::fs::symlink_metadata(&p)?;
+        if md.is_symlink() {
+            files.push(rel);
+        } else if md.is_dir() {
             dirs.push(rel.clone());
             scan(base, &p, files, dirs)?;
         } else {
