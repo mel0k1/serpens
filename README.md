@@ -8,6 +8,7 @@
 
 ![license](https://img.shields.io/badge/license-GPL--3.0-blueviolet)
 ![rust](https://img.shields.io/badge/rust-1.74%2B-dea584)
+![ci](https://github.com/mel0k1/serpens/actions/workflows/ci.yml/badge.svg)
 ![status](https://img.shields.io/badge/status-experimental-red)
 
 [README in English](README.en.md)
@@ -45,7 +46,64 @@ Gentoo построен на сборке из исходников, и в эт�
 
 Данные живут по привычным путям: world в `/var/db/flexura/world`, база установленных пакетов в `/var/db/flexura/installed.json`, логи сборки в `/var/log/flexura`, исходники в `/var/cache/flexura/distfiles`, упакованные пакеты в `/var/cache/flexura/packages`.
 
-Чего пока нет: слоты, блокеры, бинарный хост, sandbox для фаз, хуки. Это план, а не дыры в документации.
+## Слоты и блокеры
+
+Рецепт объявляет свой слот, зависимость выбирает слот через двоеточие, как в ебилдах:
+
+```toml
+[package]
+name = "openssl"
+version = "1.1.1w"
+slot = "1.1"
+```
+
+```toml
+[dependencies]
+build = ["openssl:1.1", ">=ncurses-6.0:6", "zlib>=1.2"]
+```
+
+Зависимость без слота принимает любой. В базе пакетов каждая запись хранится под ключом `имя:слот`, так что `openssl:1.1` и `openssl:3.0` живут рядом, а `flexura remove openssl:1.1` снимает только указанный слот. Если слот в зависимости не существует, резолвер говорит об этом прямо.
+
+Блокеры ставят запрет на соседство. `!pkg` запрещает pkg в той же транзакции установки, `!!pkg` ещё и ругается, если pkg уже стоит в системе:
+
+```toml
+[dependencies]
+build = ["!oldmail", "!!newmail>=2.0"]
+```
+
+Резолвер проверяет блокеры против всего плана сборки, а не только против зависимостей одного рецепта.
+
+## ebuild2flx
+
+Конвертер ебилдов в рецепты .flx. Переносит глобальные переменные, многострочные DEPEND/RDEPEND с условными группами `flag? ( ... )`, фазы src_prepare/configure/compile/install, команду econf, emake и ставильщики файлов вроде dobin, dodoc, dosym, newbin. `use_enable` и `use_with` продолжают работать в рецептах: flexura подкладывает в сборочное окружение маленький shim с этими функциями.
+
+```bash
+./ebuild2flx/target/release/ebuild2flx -o recipes/tools htop-3.5.3.ebuild
+```
+
+Конвертер честно предупреждает о том, чего не умеет: атомы с `[use]`-условиями, `|| ( ... )` берётся первым вариантом, pkg_postinst и питоньи eclass'ы требуют ручной доработки. URL из `mirror://` известных зеркал подставляются, остальные просят правки. Сумму sha256 после конвертации надо посчитать самому.
+
+## Stage и установка
+
+`scripts/mkstage.sh` бутстрапит корень: собирает flexura, ставит в свежий корень базовый набор (serpens-base, busybox, bash, coreutils, ncurses, readline, zlib), пишет конфиг с репозиторием и пакует тарбол:
+
+```bash
+./scripts/mkstage.sh serpens-stage-x86_64.tar.gz
+```
+
+В тарболе готовый корень с world-файлом и рабочим flexura, так что после распаковки `flexura install` и `flexura upgrade` работают сразу. Сборка идёт тулчейном текущего хоста, поэтому stage рассчитан на x86-64 Linux с glibc, на подобных хостах ставится без пересборки.
+
+`scripts/install.sh` ставит stage на реальный диск: размечает GPT с ESP или с bios-загрузочным разделом, форматирует, качает тарбол (или берёт локальный), распаковывает, монтирует dev/proc/sys, настраивает hostname, timezone и пароль, потом отмонтирует всё и печатает, что осталось руками:
+
+```bash
+sudo ./scripts/install.sh --stage ./serpens-stage-x86_64.tar.gz --disk /dev/vda --efi
+```
+
+Ядра в дереве рецептов пока нет, поэтому загрузчик остаётся на совести установщика: с ключом `--grub` скрипт поставит grub с хоста и сгенерирует grub.cfg, если в stage уже лежит ядро.
+
+## CI
+
+GitHub Actions собирает workspace под fmt, clippy с `-D warnings`, тесты, проверяет, что все рецепты парсятся и резолвятся, гоняет smoke-установку тестового пакета и в конце бутстрапит stage-тарбол, проверяя его распаковкой. Тег `v*` публикует релиз с тарболом stage, бинарниками flexura и ebuild2flx и sha256sums.
 
 ## Рецепт
 
@@ -74,31 +132,30 @@ compile = ["make -j${NPROC}"]
 install = ["make DESTDIR=${D} install"]
 ```
 
-Фазы те же, что в Portage: prepare, configure, compile, install. Каждая строка выполняется башем с `-e`, окружение привычное: `$D`, `$WORKDIR`, `$DISTDIR`, `$NPROC`, `$USE`, `$PF`, `$PN`, `$PV`. Для скачанных исходников лучше указать `sha256`, без него flexura предупреждает и ставит как есть.
+Фазы те же, что в Portage: prepare, configure, compile, install. Каждая строка выполняется башем с `-e`, окружение привычное: `$D`, `$WORKDIR`, `$S`, `$DISTDIR`, `$NPROC`, `$USE`, `$PF`, `$PN`, `$PV`, `$EROOT`, плюс функции `use`, `use_enable`, `use_with` из shim. Для скачанных исходников лучше указать `sha256`, без него flexura предупреждает и ставит как есть.
 
 ## Быстрый старт
 
-Нужны Rust 1.74 или новее и баш.
+Нужны Rust 1.74 или новее, баш, gcc и make.
 
 ```bash
 git clone https://github.com/mel0k1/serpens.git
-cd serpens/flexura
+cd serpens
 cargo build --release
 ```
 
-Без риска для системы можно всё попробовать через FLEXURA_ROOT, менеджер раскладывает файлы в песочный корень:
+Бинарники появятся в `target/release/`. Без риска для системы можно всё попробовать через FLEXURA_ROOT, менеджер раскладывает файлы в песочный корень:
 
 ```bash
-cd serpens
 ./scripts/mktest-pkg.sh var/flexura-test
 mkdir -p var/test-root/etc/flexura
 cat > var/test-root/etc/flexura/flexura.conf <<EOF
 [main]
-repos = ["$PWD/var/flexura-test", "$PWD/recipes"]
+repos = ["$PWD/var/flexura-test", "$PWD"]
 jobs = 2
 EOF
-FLEXURA_ROOT=$PWD/var/test-root ./flexura/target/release/flexura install hello serpens-base
-FLEXURA_ROOT=$PWD/var/test-root ./flexura/target/release/flexura list -i
+FLEXURA_ROOT=$PWD/var/test-root ./target/release/flexura install hello serpens-base
+FLEXURA_ROOT=$PWD/var/test-root ./target/release/flexura list -i
 ```
 
 hello печатает приветствие, serpens-base кладёт os-release и ascii-логотип. Дальше можно поиграть с `remove`, `depclean`, `quickpkg` и убедиться, что файлы удаляются по списку.
@@ -108,12 +165,14 @@ hello печатает приветствие, serpens-base кладёт os-rele
 ```
 serpens/
 ├── flexura/       пакетный менеджер на Rust
+├── ebuild2flx/    конвертер ебилдов в .flx
 ├── recipes/       дерево пакетов: base, core, libs, net, tools
 ├── profiles/      профили x86-64 и x86-64-musl
 ├── etc/           os-release и пример flexura.conf
 ├── fastfetch/     конфиг с логотипом
 ├── neofetch/      то же для neofetch
-├── scripts/       mkstage.sh и генератор тестового пакета
+├── scripts/       mkstage.sh, install.sh и генератор тестового пакета
+├── .github/       CI и release-конвейеры
 └── assets/        иконка и ascii
 ```
 
@@ -178,11 +237,10 @@ fastfetch --logo assets/serpens.ascii --logo-color magenta
 
 ## План
 
-- слоты и блокеры в резолвере
 - бинарный хост: формат .ftar с метаданными и проверкой сумм
 - sandbox для фаз сборки, хуки до и после
-- stage-тарбол через `scripts/mkstage.sh` и установщик на реальный диск
-- конвертер ебилдов из ::gentoo в .flx
+- рецепты glibc и ядра, чтобы stage стал самостоятельным
+- sub-слоты и слоты сборщика, поиск лучшего кандидата при апгрейдах
 
 ## Лицензия
 

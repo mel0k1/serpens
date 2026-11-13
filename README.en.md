@@ -8,6 +8,7 @@ A Gentoo-based Linux distribution with its own package manager, flexura, written
 
 ![license](https://img.shields.io/badge/license-GPL--3.0-blueviolet)
 ![rust](https://img.shields.io/badge/rust-1.74%2B-dea584)
+![ci](https://github.com/mel0k1/serpens/actions/workflows/ci.yml/badge.svg)
 ![status](https://img.shields.io/badge/status-experimental-red)
 
 [README на русском](README.md)
@@ -45,7 +46,64 @@ Version constraints come in two forms, `ncurses>=6.0` and `>=ncurses-6.0`, plus 
 
 Data lives where Portage users expect it: world in `/var/db/flexura/world`, the installed database in `/var/db/flexura/installed.json`, build logs in `/var/log/flexura`, sources in `/var/cache/flexura/distfiles`, packed packages in `/var/cache/flexura/packages`.
 
-Not there yet: slots, blockers, a binary host, a sandbox for build phases, hooks. That is the roadmap, not a documentation gap.
+## Slots and blockers
+
+A recipe declares its own slot, a dependency picks one with a colon, just like in ebuilds:
+
+```toml
+[package]
+name = "openssl"
+version = "1.1.1w"
+slot = "1.1"
+```
+
+```toml
+[dependencies]
+build = ["openssl:1.1", ">=ncurses-6.0:6", "zlib>=1.2"]
+```
+
+A dependency without a slot accepts any of them. Every database record is keyed as `name:slot`, so `openssl:1.1` and `openssl:3.0` coexist, and `flexura remove openssl:1.1` drops only that slot. When a dependency names a slot that does not exist, the resolver says so directly.
+
+Blockers forbid neighbourhood. `!pkg` forbids pkg in the same install transaction, `!!pkg` also complains when pkg is already on the system:
+
+```toml
+[dependencies]
+build = ["!oldmail", "!!newmail>=2.0"]
+```
+
+The resolver checks blockers against the whole build plan, not just one recipe's dependencies.
+
+## ebuild2flx
+
+A converter from Gentoo ebuilds to .flx recipes. It carries over global variables, multiline DEPEND/RDEPEND with conditional groups `flag? ( ... )`, the src_prepare/configure/compile/install phases, econf, emake and the file installers like dobin, dodoc, dosym, newbin. `use_enable` and `use_with` keep working inside recipes: flexura injects a small shim with those functions into the build environment.
+
+```bash
+./ebuild2flx/target/release/ebuild2flx -o recipes/tools htop-3.5.3.ebuild
+```
+
+The converter is honest about what it cannot do: atoms with `[use]` conditions are skipped, `|| ( ... )` takes the first choice, pkg_postinst and the python eclasses need manual work. `mirror://` URLs of known mirrors are resolved, the rest ask for hand editing. The sha256 sum has to be computed after conversion.
+
+## Stage and installation
+
+`scripts/mkstage.sh` bootstraps a root: it builds flexura, installs a base set into a fresh root (serpens-base, busybox, bash, coreutils, ncurses, readline, zlib), writes a config pointing at the repository and packs the tarball:
+
+```bash
+./scripts/mkstage.sh serpens-stage-x86_64.tar.gz
+```
+
+The tarball carries a ready root with a world file and a working flexura, so after unpacking `flexura install` and `flexura upgrade` work right away. Packages are built with the current host toolchain, so the stage targets x86-64 Linux with glibc; on such hosts it installs without a rebuild.
+
+`scripts/install.sh` puts the stage on a real disk: it partitions GPT with an ESP or a bios boot partition, formats, downloads the tarball (or takes a local one), unpacks it, mounts dev/proc/sys, sets up hostname, timezone and the root password, then unmounts everything and prints what is left to do by hand:
+
+```bash
+sudo ./scripts/install.sh --stage ./serpens-stage-x86_64.tar.gz --disk /dev/vda --efi
+```
+
+There is no kernel recipe yet, so the bootloader stays outside the installer's scope: with the `--grub` flag the script will install grub from the host and generate grub.cfg if a kernel is already inside the stage.
+
+## CI
+
+GitHub Actions builds the workspace under fmt, clippy with `-D warnings` and tests, checks that every recipe parses and resolves, runs a smoke install of the test package, and finally bootstraps a stage tarball and verifies it by unpacking. A `v*` tag publishes a release with the stage tarball, the flexura and ebuild2flx binaries and sha256sums.
 
 ## A recipe
 
@@ -74,31 +132,30 @@ compile = ["make -j${NPROC}"]
 install = ["make DESTDIR=${D} install"]
 ```
 
-The phases mirror Portage: prepare, configure, compile, install. Every line runs under `bash -e` with the usual environment: `$D`, `$WORKDIR`, `$DISTDIR`, `$NPROC`, `$USE`, `$PF`, `$PN`, `$PV`. Add `sha256` for downloaded sources; without it flexura warns and installs as-is.
+The phases mirror Portage: prepare, configure, compile, install. Every line runs under `bash -e` with the usual environment: `$D`, `$WORKDIR`, `$S`, `$DISTDIR`, `$NPROC`, `$USE`, `$PF`, `$PN`, `$PV`, `$EROOT`, plus the `use`, `use_enable`, `use_with` shim functions. Add `sha256` for downloaded sources; without it flexura warns and installs as-is.
 
 ## Quick start
 
-You need Rust 1.74 or newer and bash.
+You need Rust 1.74 or newer, bash, gcc and make.
 
 ```bash
 git clone https://github.com/mel0k1/serpens.git
-cd serpens/flexura
+cd serpens
 cargo build --release
 ```
 
-Try it safely with FLEXURA_ROOT; the manager lays everything into a sandboxed root:
+The binaries land in `target/release/`. Try it safely with FLEXURA_ROOT; the manager lays everything into a sandboxed root:
 
 ```bash
-cd serpens
 ./scripts/mktest-pkg.sh var/flexura-test
 mkdir -p var/test-root/etc/flexura
 cat > var/test-root/etc/flexura/flexura.conf <<EOF
 [main]
-repos = ["$PWD/var/flexura-test", "$PWD/recipes"]
+repos = ["$PWD/var/flexura-test", "$PWD"]
 jobs = 2
 EOF
-FLEXURA_ROOT=$PWD/var/test-root ./flexura/target/release/flexura install hello serpens-base
-FLEXURA_ROOT=$PWD/var/test-root ./flexura/target/release/flexura list -i
+FLEXURA_ROOT=$PWD/var/test-root ./target/release/flexura install hello serpens-base
+FLEXURA_ROOT=$PWD/var/test-root ./target/release/flexura list -i
 ```
 
 hello prints a greeting, serpens-base drops in os-release and the ascii logo. From there, play with `remove`, `depclean` and `quickpkg` and watch files disappear exactly per the recorded list.
@@ -108,12 +165,14 @@ hello prints a greeting, serpens-base drops in os-release and the ascii logo. Fr
 ```
 serpens/
 ├── flexura/       the package manager, in Rust
+├── ebuild2flx/    the ebuild to .flx converter
 ├── recipes/       the package tree: base, core, libs, net, tools
 ├── profiles/      x86-64 and x86-64-musl profiles
 ├── etc/           os-release and a sample flexura.conf
 ├── fastfetch/     config with the logo
 ├── neofetch/      the same for neofetch
-├── scripts/       mkstage.sh and the test package generator
+├── scripts/       mkstage.sh, install.sh and the test package generator
+├── .github/       CI and release pipelines
 └── assets/        icon and ascii art
 ```
 
@@ -178,11 +237,10 @@ libc selection and the toolchain will move into profiles later.
 
 ## Roadmap
 
-- slots and blockers in the resolver
 - a binary host: the .ftar format with metadata and checksum verification
 - a sandbox for build phases, pre and post hooks
-- a stage tarball via `scripts/mkstage.sh` and an installer for real disks
-- a converter from ::gentoo ebuilds to .flx
+- glibc and kernel recipes, so the stage becomes self-contained
+- build sub-slots and better upgrade candidate selection
 
 ## License
 
