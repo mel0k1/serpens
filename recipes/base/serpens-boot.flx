@@ -1,0 +1,78 @@
+[package]
+name = "serpens-boot"
+version = "0.1.0"
+description = "Init-скрипты busybox, inittab, учётка root и motd"
+homepage = "https://github.com/mel0k1/serpens"
+license = "GPL-3.0"
+
+[dependencies]
+runtime = ["busybox"]
+
+[build]
+install = [
+  '''
+mkdir -p "$D/etc/init.d" "$D/sbin"
+cat > "$D/etc/inittab" <<'SERPENS_EOF'
+::sysinit:/etc/init.d/rcS
+console::respawn:/sbin/getty -L console 115200 vt100
+::ctrlaltdel:/sbin/reboot
+::shutdown:/etc/init.d/rcK
+SERPENS_EOF
+  ''',
+  '''
+cat > "$D/etc/init.d/rcS" <<'SERPENS_EOF'
+mount -t proc none /proc 2>/dev/null
+mount -t sysfs none /sys 2>/dev/null
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+mkdir -p /dev/pts /dev/shm
+mount -t devpts devpts /dev/pts 2>/dev/null
+mount -t tmpfs tmpfs /dev/shm 2>/dev/null
+mdev -s 2>/dev/null
+mount -a 2>/dev/null
+hostname -F /etc/hostname 2>/dev/null || hostname serpens 2>/dev/null
+ip link set lo up 2>/dev/null || ifconfig lo 127.0.0.1 up 2>/dev/null
+swapon -a 2>/dev/null
+SERPENS_EOF
+chmod +x "$D/etc/init.d/rcS"
+  ''',
+  '''
+cat > "$D/etc/init.d/rcK" <<'SERPENS_EOF'
+swapoff -a 2>/dev/null
+umount -a -r 2>/dev/null
+SERPENS_EOF
+chmod +x "$D/etc/init.d/rcK"
+  ''',
+  '''
+cat > "$D/etc/passwd" <<'SERPENS_EOF'
+root:x:0:0:root:/root:/bin/bash
+SERPENS_EOF
+cat > "$D/etc/group" <<'SERPENS_EOF'
+root:x:0:
+wheel:x:10:root
+SERPENS_EOF
+cat > "$D/etc/shadow" <<'SERPENS_EOF'
+root::19875:0:99999:7:::
+SERPENS_EOF
+chmod 600 "$D/etc/shadow"
+  ''',
+  '''
+echo serpens > "$D/etc/hostname"
+cat > "$D/etc/profile" <<'SERPENS_EOF'
+export PATH=/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
+export PS1='[\u@\h \W]\$ '
+SERPENS_EOF
+  ''',
+  '''
+cat > "$D/etc/motd" <<'SERPENS_EOF'
+Serpens Linux
+репозиторий: https://github.com/mel0k1/serpens
+пароль root пустой по умолчанию, задай его через passwd
+SERPENS_EOF
+  ''',
+  '''
+ln -sf /usr/sbin/init "$D/sbin/init"
+ln -sf /usr/sbin/reboot "$D/sbin/reboot"
+ln -sf /usr/sbin/poweroff "$D/sbin/poweroff"
+ln -sf /usr/sbin/getty "$D/sbin/getty"
+  ''',
+]
