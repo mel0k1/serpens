@@ -68,18 +68,18 @@ jobs:
 
       - name: boot test
         run: |
-          xorriso -osirrox on -indev serpens-live-x86_64.iso -extract /boot /tmp/isoboot
-          cp /tmp/isoboot/vmlinuz-serpens .
-          cp /tmp/isoboot/initramfs.cpio.gz .
-          sha256sum vmlinuz-serpens initramfs.cpio.gz
-          file vmlinuz-serpens
+          sha256sum serpens-live-x86_64.iso
           set +e
           timeout 420 qemu-system-x86_64 -m 2048 -smp 2 -accel tcg \
-            -display none -monitor none -serial file:serial.log \
-            -kernel vmlinuz-serpens -initrd initramfs.cpio.gz \
-            -append "console=ttyS0,115200" -no-reboot -cdrom serpens-live-x86_64.iso
+            -display none -monitor none \
+            -serial file:serial.log \
+            -debugcon file:debug.log -global isa-debugcon.iobase=0x402 \
+            -no-reboot -cdrom serpens-live-x86_64.iso
           echo "qemu exit: $?"
           set -e
+          echo "=== firmware log tail ==="
+          tail -c 4000 debug.log | tr -d '\r' || true
+          echo "=== end firmware ==="
           echo "=== serial tail ==="
           tail -c 6000 serial.log | tr -d '\r' || true
           echo "=== end serial ==="
@@ -91,8 +91,7 @@ jobs:
           name: boot-debug
           path: |
             serial.log
-            vmlinuz-serpens
-            initramfs.cpio.gz
+            debug.log
           retention-days: 7
 
       - uses: actions/upload-artifact@v4
