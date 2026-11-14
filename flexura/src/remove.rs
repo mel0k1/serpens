@@ -68,7 +68,7 @@ fn required_by(paths: &Paths, db: &Db, targets: &[String]) -> Result<Vec<(String
         let Ok((_, r)) = find_recipe_slot(&paths.repos, name, Some(slot)) else {
             continue;
         };
-        let active = r.active_flags(&paths.use_flags);
+        let active = r.active_flags(&paths.use_flags, &paths.pkg_use);
         let mut needs: Vec<String> = Vec::new();
         for dep in r.runtime_deps_for(&active) {
             let d = util::parse_dep(&dep);
@@ -203,6 +203,7 @@ pub fn depclean(paths: &Paths, assume_yes: bool, pretend: bool) -> Result<()> {
 mod tests {
     use super::*;
     use crate::config::Paths;
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
 
     fn write(path: &std::path::Path, text: &str) {
@@ -237,6 +238,8 @@ mod tests {
             repos: vec![repo.clone()],
             jobs: 1,
             use_flags: Vec::new(),
+            pkg_use: BTreeMap::new(),
+            masks: Vec::new(),
             profile: None,
         };
         (paths, Db::new(), base)

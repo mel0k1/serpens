@@ -47,6 +47,8 @@ pub enum Command {
         pretend: bool,
         #[arg(short = 'k', long, help = "ставить из тарбола pkgdir, если есть")]
         usepkg: bool,
+        #[arg(short = '1', long, help = "не добавлять пакеты в world")]
+        oneshot: bool,
     },
 
     #[command(aliases = ["unmerge", "del"], about = "удалить пакеты")]

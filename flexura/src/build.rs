@@ -93,7 +93,12 @@ pub fn run(recipe: &Recipe, paths: &Paths, log_dir: &Path) -> Result<BuildResult
         ("EROOT", paths.root.display().to_string()),
         ("DISTDIR", paths.distdir.display().to_string()),
         ("NPROC", paths.jobs.to_string()),
-        ("USE", recipe.active_flags(&paths.use_flags).join(" ")),
+        (
+            "USE",
+            recipe
+                .active_flags(&paths.use_flags, &paths.pkg_use)
+                .join(" "),
+        ),
     ];
     std::fs::create_dir_all(build_dir.join(".tmp"))?;
     let shim_path = build_dir.join(".flexura-shim.sh");

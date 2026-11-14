@@ -1,5 +1,8 @@
 use anyhow::{bail, Context, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::io::Read;
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::build;
@@ -10,6 +13,24 @@ use crate::resolver;
 use crate::util;
 use crate::world;
 
+pub const META_NAME: &str = ".flexura-meta.toml";
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+pub struct TarMeta {
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub slot: String,
+    #[serde(default)]
+    pub use_flags: Vec<String>,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub license: String,
+    #[serde(default)]
+    pub homepage: String,
+}
+
 pub fn run(
     paths: &Paths,
     targets: &[String],
@@ -17,6 +38,7 @@ pub fn run(
     upgrade: bool,
     pretend: bool,
     usepkg: bool,
+    oneshot: bool,
 ) -> Result<()> {
     if targets.is_empty() {
         util::warn("укажи хотя бы один пакет");
@@ -76,28 +98,36 @@ pub fn run(
             "сборка"
         };
         util::info(&format!("{} {}", verb, util::bold(&pf)));
-        let result = if usepkg {
+        let (result, tar_meta) = if usepkg {
             match use_tarball(paths, &r.package.name, &r.package.version)? {
-                Some(res) => {
+                Some((res, meta)) => {
                     util::info(&format!("{} из готового тарбола", util::dim(&pf)));
-                    res
+                    (res, meta)
                 }
-                None => build::run(r, paths, &paths.logs)?,
+                None => (build::run(r, paths, &paths.logs)?, None),
             }
         } else {
-            build::run(r, paths, &paths.logs)?
+            (build::run(r, paths, &paths.logs)?, None)
         };
         if let Some(old) = db::lookup(&db, &r.package.name, Some(&r.package.slot)) {
             if old.version != r.package.version {
                 crate::remove::uninstall_files(paths, &r.package.name, old)?;
             }
         }
-        let active = r.active_flags(&paths.use_flags);
+        let slot = tar_meta
+            .as_ref()
+            .map(|m| m.slot.clone())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| r.package.slot.clone());
+        let active = match &tar_meta {
+            Some(m) if !m.use_flags.is_empty() => m.use_flags.clone(),
+            _ => r.active_flags(&paths.use_flags, &paths.pkg_use),
+        };
         merge(
             paths,
             &r.package.name,
             &r.package.version,
-            &r.package.slot,
+            &slot,
             &active,
             &result,
             &mut newdb,
@@ -108,20 +138,25 @@ pub fn run(
             result.files.len(),
             util::human_size(result.size)
         ));
-    }
-    db::save(&dbpath, &newdb)?;
-    let mut w = world::load(&paths.world);
-    for t in targets {
-        let d = util::parse_dep(t);
-        let entry = match &d.slot {
-            Some(s) => db::key(&d.name, s),
-            None => d.name.clone(),
-        };
-        if !w.contains(&entry) {
-            w.push(entry);
+        for m in &r.messages.post {
+            println!("  {} {}", util::magenta("*"), m);
         }
     }
-    world::save(&paths.world, &w)?;
+    db::save(&dbpath, &newdb)?;
+    if !oneshot {
+        let mut w = world::load(&paths.world);
+        for t in targets {
+            let d = util::parse_dep(t);
+            let entry = match &d.slot {
+                Some(s) => db::key(&d.name, s),
+                None => d.name.clone(),
+            };
+            if !w.contains(&entry) {
+                w.push(entry);
+            }
+        }
+        world::save(&paths.world, &w)?;
+    }
     util::ldconfig(&paths.root);
     Ok(())
 }
@@ -136,7 +171,7 @@ pub fn upgrade(paths: &Paths) -> Result<()> {
         "обновляю мир, {}",
         util::plural_ru(w.len(), "пакет", "пакета", "пакетов")
     ));
-    run(paths, &w, false, true, false, false)
+    run(paths, &w, false, true, false, false, false)
 }
 
 pub fn fetch_only(paths: &Paths, targets: &[String], force: bool) -> Result<()> {
@@ -175,25 +210,56 @@ pub fn quickpkg(paths: &Paths, names: &[String]) -> Result<()> {
         let out = paths.pkgdir.join(format!("{}.ftar.tar.gz", pf));
         let list = paths.tmpdir.join(format!("{}.pkglist", pf));
         std::fs::write(&list, format!("{}\n", e.files.join("\n")))?;
+        let plain = paths.tmpdir.join(format!("{}.ftar", pf));
+        let _ = std::fs::remove_file(&plain);
         let st = std::process::Command::new("tar")
-            .arg("-czf")
-            .arg(&out)
+            .arg("-cf")
+            .arg(&plain)
             .arg("-C")
             .arg(&paths.root)
             .arg("-T")
             .arg(&list)
             .status()?;
-        if st.success() {
-            let size = std::fs::metadata(&out)?.len();
-            util::info(&format!(
-                "{} упакован в {} ({})",
-                util::bold(&pf),
-                out.display(),
-                util::human_size(size)
-            ));
-        } else {
+        if !st.success() {
             anyhow::bail!("tar не справился с {}", pf);
         }
+        let meta = TarMeta {
+            version: e.version.clone(),
+            slot: e.slot.clone(),
+            use_flags: e.use_flags.clone(),
+            description: String::new(),
+            license: String::new(),
+            homepage: String::new(),
+        };
+        let meta_path = paths.tmpdir.join(META_NAME);
+        std::fs::write(&meta_path, toml::to_string(&meta)?)?;
+        let st = std::process::Command::new("tar")
+            .arg("-rf")
+            .arg(&plain)
+            .arg("-C")
+            .arg(&paths.tmpdir)
+            .arg(META_NAME)
+            .status()?;
+        let _ = std::fs::remove_file(&meta_path);
+        if !st.success() {
+            anyhow::bail!("метаданные не легли в тарбол {}", pf);
+        }
+        let _ = std::fs::remove_file(&out);
+        let st = std::process::Command::new("gzip")
+            .arg("-f")
+            .arg(&plain)
+            .status()?;
+        if !st.success() {
+            anyhow::bail!("gzip не справился с {}", pf);
+        }
+        std::fs::rename(format!("{}.gz", plain.display()), &out)?;
+        let size = std::fs::metadata(&out)?.len();
+        util::info(&format!(
+            "{} упакован в {} ({})",
+            util::bold(&pf),
+            out.display(),
+            util::human_size(size)
+        ));
         let _ = std::fs::remove_file(&list);
     }
     Ok(())
@@ -205,7 +271,11 @@ fn quickpkg_tarball(paths: &Paths, name: &str, version: &str) -> Option<std::pat
     p.is_file().then_some(p)
 }
 
-fn use_tarball(paths: &Paths, name: &str, version: &str) -> Result<Option<build::BuildResult>> {
+fn use_tarball(
+    paths: &Paths,
+    name: &str,
+    version: &str,
+) -> Result<Option<(build::BuildResult, Option<TarMeta>)>> {
     let Some(tarball) = quickpkg_tarball(paths, name, version) else {
         return Ok(None);
     };
@@ -229,7 +299,12 @@ fn use_tarball(paths: &Paths, name: &str, version: &str) -> Result<Option<build:
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
-    Ok(Some(build::from_tree(&dest)?))
+    let meta_path = dest.join(META_NAME);
+    let meta = std::fs::read_to_string(&meta_path)
+        .ok()
+        .and_then(|text| toml::from_str::<TarMeta>(&text).ok());
+    let _ = std::fs::remove_file(&meta_path);
+    Ok(Some((build::from_tree(&dest)?, meta)))
 }
 
 pub fn verify(paths: &Paths) -> Result<()> {
@@ -394,6 +469,21 @@ fn timestamp() -> String {
     format!("{}", now.as_secs())
 }
 
+fn files_equal(a: &Path, b: &Path) -> bool {
+    let (Ok(mut fa), Ok(mut fb)) = (std::fs::File::open(a), std::fs::File::open(b)) else {
+        return false;
+    };
+    let mut ba = [0u8; 8192];
+    let mut bb = [0u8; 8192];
+    loop {
+        match (fa.read(&mut ba), fb.read(&mut bb)) {
+            (Ok(0), Ok(0)) => return true,
+            (Ok(n), Ok(m)) if n == m && ba[..n] == bb[..m] => {}
+            _ => return false,
+        }
+    }
+}
+
 fn merge(
     paths: &Paths,
     name: &str,
@@ -407,11 +497,25 @@ fn merge(
     for d in &result.dirs {
         std::fs::create_dir_all(paths.root.join(d))?;
     }
+    let mut deferred: Vec<String> = Vec::new();
     for f in &result.files {
         let src = result.dest.join(f);
         let dst = paths.root.join(f);
         if let Some(p) = dst.parent() {
             std::fs::create_dir_all(p)?;
+        }
+        let protected = f.starts_with("etc/")
+            && std::fs::symlink_metadata(&dst)
+                .map(|m| m.is_file())
+                .unwrap_or(false);
+        if protected && files_equal(&src, &dst) {
+            continue;
+        }
+        if protected {
+            let newp = paths.root.join(format!("{}.flexura-new", f));
+            std::fs::copy(&src, &newp)?;
+            deferred.push(f.clone());
+            continue;
         }
         if dst.is_symlink() || dst.exists() {
             std::fs::remove_file(&dst)?;
@@ -421,6 +525,17 @@ fn merge(
             std::os::unix::fs::symlink(target, &dst)?;
         } else {
             std::fs::copy(&src, &dst)?;
+        }
+    }
+    if !deferred.is_empty() {
+        for f in deferred.iter().take(5) {
+            util::warn(&format!(
+                "{} отличается от установленного, новый вариант в {}.flexura-new",
+                f, f
+            ));
+        }
+        if deferred.len() > 5 {
+            util::warn(&format!("и ещё {} защищённых файлов", deferred.len() - 5));
         }
     }
     let hashes = file_hashes(paths, result)?;
@@ -499,6 +614,8 @@ mod tests {
             repos: Vec::new(),
             jobs: 1,
             use_flags: Vec::new(),
+            pkg_use: BTreeMap::new(),
+            masks: Vec::new(),
             profile: None,
         };
         std::fs::write(paths.root.join("usr/lib/liba.so"), b"data").unwrap();
@@ -515,6 +632,98 @@ mod tests {
         let m = file_hashes(&paths, &result).unwrap();
         assert_eq!(m.len(), 1);
         assert!(m.contains_key("usr/lib/liba.so"));
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    fn paths_in(base: &std::path::Path) -> Paths {
+        Paths {
+            root: base.join("root"),
+            db: base.join("db"),
+            world: base.join("db/world"),
+            distdir: base.join("dist"),
+            tmpdir: base.join("tmp"),
+            pkgdir: base.join("pkg"),
+            logs: base.join("log"),
+            repos_raw: Vec::new(),
+            repos: Vec::new(),
+            jobs: 1,
+            use_flags: Vec::new(),
+            pkg_use: BTreeMap::new(),
+            masks: Vec::new(),
+            profile: None,
+        }
+    }
+
+    #[test]
+    fn tarball_keeps_meta() {
+        let base = std::env::temp_dir().join(format!("flexura-meta-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let paths = paths_in(&base);
+        std::fs::create_dir_all(paths.tmpdir.join("dest/usr/bin")).unwrap();
+        std::fs::write(paths.tmpdir.join("dest/usr/bin/tool"), b"#!/bin/sh\n").unwrap();
+        let db = Db::new();
+        let mut newdb = db.clone();
+        let result = build::from_tree(&paths.tmpdir.join("dest")).unwrap();
+        merge(
+            &paths,
+            "tool",
+            "1.0",
+            "0",
+            &["ssl".to_string()],
+            &result,
+            &mut newdb,
+        )
+        .unwrap();
+        db::save(&paths.db.join("installed.json"), &newdb).unwrap();
+        quickpkg(&paths, &["tool".to_string()]).unwrap();
+        let (res, meta) = use_tarball(&paths, "tool", "1.0")
+            .unwrap()
+            .expect("тарбол должен быть");
+        assert_eq!(res.files, vec!["usr/bin/tool".to_string()]);
+        let meta = meta.expect("метаданные должны быть");
+        assert_eq!(meta.version, "1.0");
+        assert_eq!(meta.slot, "0");
+        assert_eq!(meta.use_flags, vec!["ssl".to_string()]);
+        assert!(!paths
+            .tmpdir
+            .join("tool-1.0.bindest")
+            .join(META_NAME)
+            .exists());
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn merge_shields_etc() {
+        let base = std::env::temp_dir().join(format!("flexura-etc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let paths = paths_in(&base);
+        std::fs::create_dir_all(paths.root.join("etc")).unwrap();
+        std::fs::create_dir_all(paths.tmpdir.join("dest/etc")).unwrap();
+        std::fs::write(paths.root.join("etc/app.conf"), b"user edit\n").unwrap();
+        std::fs::write(paths.tmpdir.join("dest/etc/app.conf"), b"new default\n").unwrap();
+        std::fs::write(paths.tmpdir.join("dest/etc/same.conf"), b"same\n").unwrap();
+        std::fs::create_dir_all(paths.root.join("etc2")).unwrap();
+        std::fs::write(paths.root.join("etc2/same.conf"), b"same\n").unwrap();
+        let mut db = Db::new();
+        let result = build::BuildResult {
+            dest: paths.tmpdir.join("dest"),
+            files: vec!["etc/app.conf".to_string(), "etc/same.conf".to_string()],
+            dirs: vec!["etc".to_string()],
+            size: 24,
+        };
+        merge(&paths, "app", "1.0", "0", &[], &result, &mut db).unwrap();
+        assert_eq!(
+            std::fs::read(paths.root.join("etc/app.conf")).unwrap(),
+            b"user edit\n"
+        );
+        assert!(paths.root.join("etc/app.conf.flexura-new").exists());
+        assert_eq!(
+            std::fs::read(paths.root.join("etc/same.conf")).unwrap(),
+            b"same\n"
+        );
+        assert!(!paths.root.join("etc/same.conf.flexura-new").exists());
+        let entry = &db["app:0"];
+        assert!(entry.hashes.contains_key("etc/app.conf"));
         std::fs::remove_dir_all(&base).unwrap();
     }
 }

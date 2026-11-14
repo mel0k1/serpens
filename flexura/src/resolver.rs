@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::config::Paths;
 use crate::db::{self, Db};
-use crate::recipe::{find_recipe_slot, Recipe, DEFAULT_SLOT};
+use crate::recipe::{find_recipe_slot, find_recipe_slot_masked, Recipe, DEFAULT_SLOT};
 use crate::util::{constraint_matches, parse_dep, Blocker, Constraint, Dep};
 
 #[derive(Debug)]
@@ -24,6 +24,7 @@ pub fn resolve(
         blockers: Vec::new(),
         order: Vec::new(),
         force,
+        masks: paths.masks.clone(),
     };
     for t in targets {
         let d = parse_dep(t);
@@ -32,7 +33,7 @@ pub fn resolve(
         }
         if upgrade {
             let (_, best) =
-                crate::recipe::find_recipe_slot(&paths.repos, &d.name, d.slot.as_deref())?;
+                find_recipe_slot_masked(&paths.repos, &d.name, d.slot.as_deref(), &paths.masks)?;
             if !db::matching(db, &best.package.name, Some(&best.package.slot))
                 .iter()
                 .any(|(_, e)| e.version == best.package.version)
@@ -85,7 +86,7 @@ fn visit_runtime(spec: &str, paths: &Paths, db: &Db, keep: &mut BTreeSet<String>
                 .map(|(_, r)| r),
         };
         if let Some(r) = recipe {
-            let active = r.active_flags(&paths.use_flags);
+            let active = r.active_flags(&paths.use_flags, &paths.pkg_use);
             for dep in r.runtime_deps_for(&active) {
                 visit_runtime(&dep, paths, db, keep)?;
             }
@@ -100,6 +101,7 @@ struct State {
     blockers: Vec<Dep>,
     order: Vec<Recipe>,
     force: bool,
+    masks: Vec<String>,
 }
 
 impl State {
@@ -164,7 +166,8 @@ impl State {
         if !self.force && (self.satisfied_installed(dep, db) || self.satisfied_planned(dep)) {
             return Ok(());
         }
-        let (_, recipe) = find_recipe_slot(&paths.repos, &dep.name, dep.slot.as_deref())?;
+        let (_, recipe) =
+            find_recipe_slot_masked(&paths.repos, &dep.name, dep.slot.as_deref(), &self.masks)?;
         self.plan_recipe(&recipe, paths, db)
     }
 
@@ -179,7 +182,7 @@ impl State {
             return Ok(());
         }
         self.planned.insert(pkey.clone(), recipe.clone());
-        let active = recipe.active_flags(&paths.use_flags);
+        let active = recipe.active_flags(&paths.use_flags, &paths.pkg_use);
         for d in recipe.deps_for(&active) {
             let dd = parse_dep(&d);
             if !dd.is_blocker() {
@@ -296,6 +299,8 @@ mod tests {
             repos: vec![repo.clone()],
             jobs: 1,
             use_flags: Vec::new(),
+            pkg_use: BTreeMap::new(),
+            masks: Vec::new(),
             profile: None,
         };
         (paths, Db::new(), base)
@@ -508,6 +513,27 @@ mod tests {
         assert_eq!(plan.order.len(), 2);
         assert_eq!(plan.order[0].package.name, "zlib");
         assert_eq!(plan.order[1].package.name, "app");
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn mask_forces_older() {
+        let (paths, db, base) = setup("mask");
+        write(
+            &base.join("repo/app-10.flx"),
+            &recipe_toml("app", "1.0", "0", ""),
+        );
+        write(
+            &base.join("repo/app-11.flx"),
+            &recipe_toml("app", "2.0", "0", ""),
+        );
+        let mut masked = paths;
+        masked.masks = vec![">=app-2.0".to_string()];
+        let plan = resolve(&masked, &db, &["app".into()], false, false).unwrap();
+        assert_eq!(plan.order[0].package.version, "1.0");
+        masked.masks = vec!["app".to_string()];
+        let err = resolve(&masked, &db, &["app".into()], false, false).unwrap_err();
+        assert!(err.to_string().contains("замаскированы"));
         std::fs::remove_dir_all(&base).unwrap();
     }
 }

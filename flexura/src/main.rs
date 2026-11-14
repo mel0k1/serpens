@@ -41,7 +41,8 @@ fn run(args: &Args) -> Result<()> {
             force,
             pretend,
             usepkg,
-        } => install::run(&paths, packages, *force, false, *pretend, *usepkg),
+            oneshot,
+        } => install::run(&paths, packages, *force, false, *pretend, *usepkg, *oneshot),
         Command::Remove {
             packages,
             yes,

@@ -1,6 +1,9 @@
 use anyhow::Result;
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+use crate::util::strip_category;
 
 #[derive(Deserialize, Default, Clone)]
 #[serde(default)]
@@ -53,6 +56,8 @@ pub struct Paths {
     pub repos: Vec<PathBuf>,
     pub jobs: usize,
     pub use_flags: Vec<String>,
+    pub pkg_use: BTreeMap<String, Vec<String>>,
+    pub masks: Vec<String>,
     pub profile: Option<String>,
 }
 
@@ -103,6 +108,8 @@ impl Paths {
                 }
             }
         }
+        let pkg_use = load_pkg_use(&root.join("etc/flexura/package.use"));
+        let masks = load_lines(&root.join("etc/flexura/package.mask"));
         Paths {
             root: root.to_path_buf(),
             db,
@@ -115,6 +122,8 @@ impl Paths {
             repos,
             jobs,
             use_flags,
+            pkg_use,
+            masks,
             profile: cfg.main.profile.clone(),
         }
     }
@@ -139,5 +148,75 @@ impl Paths {
             .unwrap_or("repo")
             .trim_end_matches(".git");
         self.root.join("var/db/repos").join(name)
+    }
+}
+
+fn meaningful_lines(text: &str) -> Vec<String> {
+    text.lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| l.to_string())
+        .collect()
+}
+
+pub fn load_lines(path: &Path) -> Vec<String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => meaningful_lines(&text),
+        Err(_) => Vec::new(),
+    }
+}
+
+pub fn load_pkg_use(path: &Path) -> BTreeMap<String, Vec<String>> {
+    let mut m: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    if let Ok(text) = std::fs::read_to_string(path) {
+        for line in meaningful_lines(&text) {
+            let mut parts = line.split_whitespace();
+            let Some(target) = parts.next() else {
+                continue;
+            };
+            let flags: Vec<String> = parts.map(|s| s.to_string()).collect();
+            if flags.is_empty() {
+                continue;
+            }
+            m.entry(strip_category(target)).or_default().extend(flags);
+        }
+    }
+    m
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pkg_use_parser() {
+        let dir = std::env::temp_dir().join(format!("flexura-cfg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("package.use");
+        std::fs::write(
+            &p,
+            "# comment\nopenssl -man +zlib\ndev-libs/other:6 flag1\n\n",
+        )
+        .unwrap();
+        let m = load_pkg_use(&p);
+        assert_eq!(m["openssl"], vec!["-man".to_string(), "+zlib".to_string()]);
+        assert_eq!(m["other:6"], vec!["flag1".to_string()]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn mask_parser() {
+        let dir = std::env::temp_dir().join(format!("flexura-mask-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("package.mask");
+        std::fs::write(&p, ">=mail-client/bad-2.0\n# no\nplain").unwrap();
+        let m = load_lines(&p);
+        assert_eq!(
+            m,
+            vec![">=mail-client/bad-2.0".to_string(), "plain".to_string()]
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

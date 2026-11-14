@@ -28,7 +28,7 @@ The package manager. Subcommand style, with aliases for the Portage operations y
 | flexura | aliases | action | Portage equivalent |
 |---|---|---|---|
 | `flexura sync` | `update` | clone and update recipe repositories | `emerge --sync` |
-| `flexura install bash` | `emerge`, `add` | resolve deps, build, merge; `-p` shows the plan without building, `-k` reuses a tarball from pkgdir | `emerge bash` |
+| `flexura install bash` | `emerge`, `add` | resolve deps, build, merge; `-p` shows the plan without building, `-k` reuses a tarball from pkgdir, `-1` leaves world untouched | `emerge bash` |
 | `flexura fetch bash` | `download` | download sources only | `emerge --fetchonly` |
 | `flexura remove bash` | `unmerge`, `del` | delete a package by its file list; refuses while other packages need it, `-p` for a dry run, `--force` to push through | `emerge --unmerge` |
 | `flexura upgrade` | | move world packages up to newer versions | `emerge --update @world` |
@@ -44,9 +44,11 @@ The package manager. Subcommand style, with aliases for the Portage operations y
 | `flexura log` | | install history, newest first, `-n` sets the count | `genlop -l` |
 | `flexura world` | | print the world file | `cat /var/lib/portage/world` |
 
-Version constraints come in two forms, `ncurses>=6.0` and `>=ncurses-6.0`, plus `=bash-5.2.21` and `~openssl-3.3`. USE flags are set in `flexura.conf` and in the profile, a recipe carries its own defaults, and conditional dependencies go into an `optional` section.
+Version constraints come in two forms, `ncurses>=6.0` and `>=ncurses-6.0`, plus `=bash-5.2.21` and `~openssl-3.3`. USE flags are set in `flexura.conf` and in the profile, a recipe carries its own defaults, and conditional dependencies go into an `optional` section. Per-package overrides live in `/etc/flexura/package.use`: a line like `openssl -doc +static` tweaks one package's flags, and a `openssl:1.1` key only affects that slot. `/etc/flexura/package.mask` hides versions: `>=openssl-3.3` makes the resolver silently pick the newest unmasked candidate, and if every candidate is masked the install fails honestly.
 
-Data lives where Portage users expect it: world in `/var/db/flexura/world`, the installed database in `/var/db/flexura/installed.json` with a sha256 for every file, build logs in `/var/log/flexura`, sources in `/var/cache/flexura/distfiles`, packed packages in `/var/cache/flexura/packages`. On merge flexura warns about files already owned by another package and refreshes the dynamic linker cache in the root.
+On merge flexura warns about files already owned by another package and refreshes the dynamic linker cache in the root. Files under `etc/` are shielded: when content changes, the old file stays and the new one lands next to it with a `.flexura-new` suffix. A recipe may carry a `[messages] post = ["..."]` section — those lines print after the install, like einfo in ebuilds.
+
+Data lives where Portage users expect it: world in `/var/db/flexura/world`, the installed database in `/var/db/flexura/installed.json` with a sha256 for every file, build logs in `/var/log/flexura`, sources in `/var/cache/flexura/distfiles`, packed packages in `/var/cache/flexura/packages`. A quickpkg tarball embeds its metadata (version, slot, USE) in `.flexura-meta.toml`, so `install -k` restores the package exactly as it was packed.
 
 ## Slots and blockers
 

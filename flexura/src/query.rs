@@ -142,7 +142,7 @@ pub fn info_pkg(paths: &Paths, target: &str) -> Result<()> {
     if !r.package.license.is_empty() {
         println!("  лицензия: {}", r.package.license);
     }
-    let active = r.active_flags(&paths.use_flags);
+    let active = r.active_flags(&paths.use_flags, &paths.pkg_use);
     if !active.is_empty() {
         println!("  USE: {}", active.join(" "));
     }
@@ -219,7 +219,7 @@ fn walk_deps(
             format!(" {}", util::magenta(&cstr))
         }
     );
-    let active = r.active_flags(&paths.use_flags);
+    let active = r.active_flags(&paths.use_flags, &paths.pkg_use);
     for dep in r.deps_for(&active) {
         let mut np = prefix.to_string();
         np.push_str("  ");
@@ -269,7 +269,7 @@ fn walk_rdeps(
         if other.package.name == r.package.name && other.package.slot == r.package.slot {
             continue;
         }
-        let active = other.active_flags(&paths.use_flags);
+        let active = other.active_flags(&paths.use_flags, &paths.pkg_use);
         let needs = other
             .runtime_deps_for(&active)
             .into_iter()
