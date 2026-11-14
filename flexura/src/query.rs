@@ -172,9 +172,13 @@ pub fn info_pkg(paths: &Paths, target: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn deps(paths: &Paths, target: &str) -> Result<()> {
+pub fn deps(paths: &Paths, target: &str, reverse: bool) -> Result<()> {
     let mut seen = BTreeSet::new();
-    walk_deps(paths, target, 0, &mut seen, "  ")?;
+    if reverse {
+        walk_rdeps(paths, target, 0, &mut seen, "  ")?;
+    } else {
+        walk_deps(paths, target, 0, &mut seen, "  ")?;
+    }
     Ok(())
 }
 
@@ -220,6 +224,72 @@ fn walk_deps(
         let mut np = prefix.to_string();
         np.push_str("  ");
         walk_deps(paths, &dep, depth + 1, seen, &np)?;
+    }
+    Ok(())
+}
+
+fn walk_rdeps(
+    paths: &Paths,
+    spec: &str,
+    depth: usize,
+    seen: &mut BTreeSet<String>,
+    prefix: &str,
+) -> Result<()> {
+    if depth > 12 {
+        return Ok(());
+    }
+    let d = util::parse_dep(spec);
+    let seen_id = format!("{}", d);
+    if !seen.insert(seen_id) && depth > 0 {
+        return Ok(());
+    }
+    let Ok((_, r)) = find_recipe_slot(&paths.repos, &d.name, d.slot.as_deref()) else {
+        println!("{}{} (рецепта нет)", prefix, util::red(&d.name));
+        return Ok(());
+    };
+    let cstr = util::constraint_str(&d.constraint);
+    let slot_str = if r.package.slot == "0" {
+        String::new()
+    } else {
+        format!(":{}", r.package.slot)
+    };
+    println!(
+        "{}{}-{}{}{}",
+        prefix,
+        util::bold(&r.package.name),
+        r.package.version,
+        util::dim(&slot_str),
+        if cstr.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", util::magenta(&cstr))
+        }
+    );
+    for other in all_recipes(&paths.repos) {
+        if other.package.name == r.package.name && other.package.slot == r.package.slot {
+            continue;
+        }
+        let active = other.active_flags(&paths.use_flags);
+        let needs = other
+            .runtime_deps_for(&active)
+            .into_iter()
+            .chain(other.dependencies.build.iter().cloned())
+            .any(|dep| {
+                let rd = util::parse_dep(&dep);
+                rd.name == r.package.name
+                    && rd
+                        .slot
+                        .as_deref()
+                        .map(|s| s == r.package.slot)
+                        .unwrap_or(true)
+                    && util::constraint_matches(&r.package.version, &rd.constraint)
+            });
+        if needs {
+            let mut np = prefix.to_string();
+            np.push_str("  ");
+            let spec = format!("{}:{}", other.package.name, other.package.slot);
+            walk_rdeps(paths, &spec, depth + 1, seen, &np)?;
+        }
     }
     Ok(())
 }

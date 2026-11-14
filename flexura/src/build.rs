@@ -152,6 +152,33 @@ pub fn run(recipe: &Recipe, paths: &Paths, log_dir: &Path) -> Result<BuildResult
     })
 }
 
+pub fn from_tree(dest_dir: &Path) -> Result<BuildResult> {
+    let mut files = Vec::new();
+    let mut dirs = Vec::new();
+    scan(dest_dir, dest_dir, &mut files, &mut dirs)?;
+    if files.is_empty() {
+        bail!("в дереве {} нет ни одного файла", dest_dir.display());
+    }
+    files.sort();
+    dirs.sort();
+    let mut size = 0u64;
+    for f in &files {
+        let p = dest_dir.join(f);
+        let m = std::fs::symlink_metadata(&p)?;
+        size += if m.is_symlink() {
+            m.len().min(4096)
+        } else {
+            m.len()
+        };
+    }
+    Ok(BuildResult {
+        dest: dest_dir.to_path_buf(),
+        files,
+        dirs,
+        size,
+    })
+}
+
 pub fn file_name(url: &str) -> String {
     let base = url.rsplit('/').next().unwrap_or(url);
     base.split('?').next().unwrap_or(base).to_string()

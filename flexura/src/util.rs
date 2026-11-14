@@ -85,6 +85,45 @@ pub fn plural_ru(n: usize, one: &str, few: &str, many: &str) -> String {
     }
 }
 
+pub fn epoch_utc(ts: u64) -> String {
+    let days = ts / 86400;
+    let rem = ts % 86400;
+    let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    let z = days + 719468;
+    let era = z / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if mo <= 2 { y + 1 } else { y };
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", y, mo, d, h, m, s)
+}
+
+pub fn ldconfig(root: &std::path::Path) {
+    let has = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).any(|d| d.join("ldconfig").exists()))
+        .unwrap_or(false);
+    if !has {
+        return;
+    }
+    let out = std::process::Command::new("ldconfig")
+        .arg("-r")
+        .arg(root)
+        .output();
+    if let Ok(o) = out {
+        if !o.status.success() {
+            let msg = String::from_utf8_lossy(&o.stderr);
+            let msg = msg.trim();
+            if !msg.is_empty() {
+                warn(&format!("ldconfig: {}", msg));
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
     Any,
@@ -337,6 +376,14 @@ mod tests {
         assert_eq!(version_cmp("1.2.3", "1.2.10"), Cmp::Less);
         assert_eq!(version_cmp("2.0", "1.99.9"), Cmp::Greater);
         assert_eq!(version_cmp("3.3.0", "3.3"), Cmp::Equal);
+    }
+
+    #[test]
+    fn epoch_formatting() {
+        assert_eq!(epoch_utc(0), "1970-01-01 00:00:00");
+        assert_eq!(epoch_utc(951782400), "2000-02-29 00:00:00");
+        assert_eq!(epoch_utc(1760486400), "2025-10-15 00:00:00");
+        assert_eq!(epoch_utc(86399), "1970-01-01 23:59:59");
     }
 
     #[test]

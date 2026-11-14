@@ -28,23 +28,25 @@ The package manager. Subcommand style, with aliases for the Portage operations y
 | flexura | aliases | action | Portage equivalent |
 |---|---|---|---|
 | `flexura sync` | `update` | clone and update recipe repositories | `emerge --sync` |
-| `flexura install bash` | `emerge`, `add` | resolve deps, build, merge | `emerge bash` |
+| `flexura install bash` | `emerge`, `add` | resolve deps, build, merge; `-p` shows the plan without building, `-k` reuses a tarball from pkgdir | `emerge bash` |
 | `flexura fetch bash` | `download` | download sources only | `emerge --fetchonly` |
-| `flexura remove bash` | `unmerge`, `del` | delete a package by its file list | `emerge --unmerge` |
+| `flexura remove bash` | `unmerge`, `del` | delete a package by its file list; refuses while other packages need it, `-p` for a dry run, `--force` to push through | `emerge --unmerge` |
 | `flexura upgrade` | | move world packages up to newer versions | `emerge --update @world` |
-| `flexura depclean` | `clean` | drop orphaned dependencies | `emerge --depclean` |
+| `flexura depclean` | `clean` | drop orphaned dependencies, `-p` lists candidates | `emerge --depclean` |
 | `flexura search htop` | `find` | search names and descriptions | `emerge --search` |
 | `flexura info bash` | `show` | show a recipe and its status | `equery show` |
 | `flexura info` | | system summary: profile, USE, counters | `emerge --info` |
 | `flexura list -i` | `ls` | installed or available packages | `qlist -I` |
-| `flexura deps git` | `tree` | dependency tree | `equery depgraph` |
+| `flexura deps git` | `tree` | dependency tree, `-R` reversed — who depends on the package | `equery depgraph`, `equery depends` |
 | `flexura file /usr/bin/git` | `owner` | which package owns a file | `equery belongs` |
 | `flexura quickpkg bash` | `pkg` | pack an installed package into a tarball | `quickpkg` |
+| `flexura verify` | `qcheck` | check installed files against sha256 from the database | `qcheck` |
+| `flexura log` | | install history, newest first, `-n` sets the count | `genlop -l` |
 | `flexura world` | | print the world file | `cat /var/lib/portage/world` |
 
 Version constraints come in two forms, `ncurses>=6.0` and `>=ncurses-6.0`, plus `=bash-5.2.21` and `~openssl-3.3`. USE flags are set in `flexura.conf` and in the profile, a recipe carries its own defaults, and conditional dependencies go into an `optional` section.
 
-Data lives where Portage users expect it: world in `/var/db/flexura/world`, the installed database in `/var/db/flexura/installed.json`, build logs in `/var/log/flexura`, sources in `/var/cache/flexura/distfiles`, packed packages in `/var/cache/flexura/packages`.
+Data lives where Portage users expect it: world in `/var/db/flexura/world`, the installed database in `/var/db/flexura/installed.json` with a sha256 for every file, build logs in `/var/log/flexura`, sources in `/var/cache/flexura/distfiles`, packed packages in `/var/cache/flexura/packages`. On merge flexura warns about files already owned by another package and refreshes the dynamic linker cache in the root.
 
 ## Slots and blockers
 

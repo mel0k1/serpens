@@ -28,23 +28,25 @@ Gentoo построен на сборке из исходников, и в эт�
 | flexura | алиасы | действие | аналог в Portage |
 |---|---|---|---|
 | `flexura sync` | `update` | клонирует и обновляет репозитории рецептов | `emerge --sync` |
-| `flexura install bash` | `emerge`, `add` | разрешает зависимости, собирает, ставит | `emerge bash` |
+| `flexura install bash` | `emerge`, `add` | разрешает зависимости, собирает, ставит; `-p` показывает план без сборки, `-k` берёт готовый тарбол из pkgdir | `emerge bash` |
 | `flexura fetch bash` | `download` | только скачивает исходники | `emerge --fetchonly` |
-| `flexura remove bash` | `unmerge`, `del` | удаляет пакет по списку файлов | `emerge --unmerge` |
+| `flexura remove bash` | `unmerge`, `del` | удаляет пакет по списку файлов; отказывается снимать пакет, который нужен другим, `-p` черновик, `--force` продавливает | `emerge --unmerge` |
 | `flexura upgrade` | | поднимает пакеты из world до старших версий | `emerge --update @world` |
-| `flexura depclean` | `clean` | убирает осиротевшие зависимости | `emerge --depclean` |
+| `flexura depclean` | `clean` | убирает осиротевшие зависимости, `-p` показывает кандидатов | `emerge --depclean` |
 | `flexura search htop` | `find` | ищет по именам и описаниям | `emerge --search` |
 | `flexura info bash` | `show` | показывает рецепт и статус | `equery show` |
 | `flexura info` | | сводка о системе: профиль, USE, счётчики | `emerge --info` |
 | `flexura list -i` | `ls` | установленные или доступные пакеты | `qlist -I` |
-| `flexura deps git` | `tree` | дерево зависимостей | `equery depgraph` |
+| `flexura deps git` | `tree` | дерево зависимостей, `-R` наоборот — кто зависит от пакета | `equery depgraph`, `equery depends` |
 | `flexura file /usr/bin/git` | `owner` | какой пакет владеет файлом | `equery belongs` |
 | `flexura quickpkg bash` | `pkg` | пакует установленный пакет в тарбол | `quickpkg` |
+| `flexura verify` | `qcheck` | сверяет установленные файлы с sha256 из базы | `qcheck` |
+| `flexura log` | | история установок, свежие сверху, `-n` задаёт сколько | `genlop -l` |
 | `flexura world` | | печатает world-файл | `cat /var/lib/portage/world` |
 
 Ограничения версий пишутся в двух формах: `ncurses>=6.0` и `>=ncurses-6.0`, работают `=bash-5.2.21`, `~openssl-3.3`. USE-флаги задаются в `flexura.conf` и в профиле, у рецепта есть свои флаги по умолчанию, условные зависимости объявляются секцией `optional`.
 
-Данные живут по привычным путям: world в `/var/db/flexura/world`, база установленных пакетов в `/var/db/flexura/installed.json`, логи сборки в `/var/log/flexura`, исходники в `/var/cache/flexura/distfiles`, упакованные пакеты в `/var/cache/flexura/packages`.
+Данные живут по привычным путям: world в `/var/db/flexura/world`, база установленных пакетов в `/var/db/flexura/installed.json` с sha256 каждого файла, логи сборки в `/var/log/flexura`, исходники в `/var/cache/flexura/distfiles`, упакованные пакеты в `/var/cache/flexura/packages`. При установке flexura предупреждает о файлах, которые уже принадлежат другому пакету, и обновляет кэш динамического линковщика в корне.
 
 ## Слоты и блокеры
 

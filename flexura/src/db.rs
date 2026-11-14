@@ -18,6 +18,8 @@ pub struct Installed {
     pub size: u64,
     #[serde(default)]
     pub slot: String,
+    #[serde(default)]
+    pub hashes: BTreeMap<String, String>,
 }
 
 pub type Db = BTreeMap<String, Installed>;
@@ -143,5 +145,25 @@ mod tests {
         assert!(db.contains_key("bash:0"));
         assert_eq!(db["bash:0"].slot, "0");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn hashes_survive_roundtrip() {
+        let mut hashes = BTreeMap::new();
+        hashes.insert("usr/lib/libz.so.1".to_string(), "deadbeef".to_string());
+        let entry = Installed {
+            version: "1.3.1".into(),
+            files: vec!["usr/lib/libz.so.1".into()],
+            dirs: vec!["usr/lib".into()],
+            hashes,
+            ..Default::default()
+        };
+        let text = serde_json::to_string(&entry).unwrap();
+        let back: Installed = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.hashes["usr/lib/libz.so.1"], "deadbeef");
+        let legacy: Installed =
+            serde_json::from_str(r#"{"version": "1.0", "files": [], "dirs": [], "slot": "0"}"#)
+                .unwrap();
+        assert!(legacy.hashes.is_empty());
     }
 }

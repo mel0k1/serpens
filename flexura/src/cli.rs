@@ -43,6 +43,10 @@ pub enum Command {
         packages: Vec<String>,
         #[arg(short, long, help = "пересобрать даже установленную версию")]
         force: bool,
+        #[arg(short, long, help = "показать план без сборки")]
+        pretend: bool,
+        #[arg(short = 'k', long, help = "ставить из тарбола pkgdir, если есть")]
+        usepkg: bool,
     },
 
     #[command(aliases = ["unmerge", "del"], about = "удалить пакеты")]
@@ -51,6 +55,10 @@ pub enum Command {
         packages: Vec<String>,
         #[arg(short = 'y', long, help = "не спрашивать подтверждения")]
         yes: bool,
+        #[arg(short, long, help = "показать план без удаления")]
+        pretend: bool,
+        #[arg(long, help = "удалять даже если пакет кому-то нужен")]
+        force: bool,
     },
 
     #[command(alias = "find", about = "поиск по именам и описаниям")]
@@ -75,6 +83,8 @@ pub enum Command {
     Deps {
         #[arg(value_name = "PKG")]
         package: String,
+        #[arg(short = 'R', long, help = "кто зависит от пакета")]
+        reverse: bool,
     },
 
     #[command(about = "обновить пакеты из world")]
@@ -84,6 +94,8 @@ pub enum Command {
     Depclean {
         #[arg(short = 'y', long, help = "не спрашивать подтверждения")]
         yes: bool,
+        #[arg(short, long, help = "показать кандидатов без удаления")]
+        pretend: bool,
     },
 
     #[command(alias = "pkg", about = "запаковать установленный пакет в тарбол")]
@@ -108,4 +120,13 @@ pub enum Command {
 
     #[command(about = "показать world")]
     World,
+
+    #[command(alias = "qcheck", about = "проверить файлы по sha256 из базы")]
+    Verify,
+
+    #[command(about = "история установок")]
+    Log {
+        #[arg(short = 'n', long, default_value_t = 20, value_name = "N")]
+        limit: usize,
+    },
 }
